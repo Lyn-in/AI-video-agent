@@ -1,4 +1,4 @@
-"""密钥设置：多厂商 API Key 全在网页上填，不用命令行。"""
+"""密钥设置：多厂商 API 配置全在网页上填，不用命令行。"""
 
 from __future__ import annotations
 
@@ -21,10 +21,6 @@ def index():
 
 @bp.post("/password")
 def set_password():
-    """
-    设口令。本机自用不需要 —— 设了反而每次双击都要登一次。
-    要把工作台给别人访问（哪怕只是同一个局域网）才用得上。
-    """
     pw = (request.form.get("password") or "").strip()
     if len(pw) < 6:
         abort(400)
@@ -42,9 +38,12 @@ def clear_password():
 def save(provider):
     if provider not in PROVIDERS:
         abort(404)
-    value = (request.form.get("key") or "").strip()
-    if value:
-        keystore.set_key(provider, value)
+    keystore.set_provider_config(
+        provider,
+        base_url=(request.form.get("base_url") or "").strip(),
+        model=(request.form.get("model") or "").strip(),
+        key=(request.form.get("key") or "").strip(),
+    )
     return redirect(url_for("settings.index"))
 
 

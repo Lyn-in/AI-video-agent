@@ -31,6 +31,7 @@ PROVIDERS = {
     "anthropic": {
         "label": "Anthropic（Claude）",
         "url": "https://api.anthropic.com/v1/messages",
+        "default_model": "claude-sonnet-4-6",
         "key_env": "ANTHROPIC_API_KEY",
         "style": "anthropic",
         "hint": "console.anthropic.com → API Keys",
@@ -38,6 +39,7 @@ PROVIDERS = {
     "deepseek": {
         "label": "DeepSeek",
         "url": "https://api.deepseek.com/v1/chat/completions",
+        "default_model": "deepseek-chat",
         "key_env": "DEEPSEEK_API_KEY",
         "style": "openai",
         "hint": "platform.deepseek.com → API keys",
@@ -45,6 +47,7 @@ PROVIDERS = {
     "openai": {
         "label": "OpenAI（GPT）",
         "url": "https://api.openai.com/v1/chat/completions",
+        "default_model": "gpt-4o",
         "key_env": "OPENAI_API_KEY",
         "style": "openai",
         "hint": "platform.openai.com → API keys",
@@ -52,6 +55,7 @@ PROVIDERS = {
     "moonshot": {
         "label": "月之暗面（Kimi）",
         "url": "https://api.moonshot.cn/v1/chat/completions",
+        "default_model": "moonshot-v1-8k",
         "key_env": "MOONSHOT_API_KEY",
         "style": "openai",
         "hint": "platform.moonshot.cn → API Key 管理",
@@ -59,6 +63,7 @@ PROVIDERS = {
     "zhipu": {
         "label": "智谱（GLM）",
         "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "default_model": "glm-4-flash",
         "key_env": "ZHIPU_API_KEY",
         "style": "openai",
         "hint": "open.bigmodel.cn → API Keys",
@@ -66,6 +71,7 @@ PROVIDERS = {
     "qwen": {
         "label": "通义千问（Qwen）",
         "url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        "default_model": "qwen-plus",
         "key_env": "QWEN_API_KEY",
         "style": "openai",
         "hint": "dashscope.console.aliyun.com → API-KEY 管理",
@@ -73,6 +79,7 @@ PROVIDERS = {
     "doubao": {
         "label": "火山引擎（豆包）",
         "url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        "default_model": "doubao-pro-32k",
         "key_env": "DOUBAO_API_KEY",
         "style": "openai",
         "hint": "console.volcengine.com/ark → API Key",
@@ -146,16 +153,20 @@ class ModelGateway:
                 f"去网页上的「密钥设置」页填一下，或用 --dry-run 在无密钥情况下跑通流程。"
             )
 
+        overrides = keystore.get_provider_config(provider)
+        url = overrides.get("base_url") or cfg["url"]
+        model = overrides.get("model") or model
+
         t0 = time.time()
         last_err = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 if cfg["style"] == "anthropic":
                     res = self._call_anthropic(
-                        key, model, system, user, temperature, max_tokens)
+                        url, key, model, system, user, temperature, max_tokens)
                 else:
                     res = self._call_openai_style(
-                        cfg["url"], key, model,
+                        url, key, model,
                         system, user, temperature, max_tokens, provider)
                 res.elapsed_sec = round(time.time() - t0, 2)
                 self._log(skill_id, tag, res, system, user)
@@ -173,7 +184,7 @@ class ModelGateway:
         raise GatewayError(f"调用失败（重试 {self.max_retries} 次）: {last_err}")
 
     # ---------- provider 适配 ----------
-    def _call_anthropic(self, key, model, system, user,
+    def _call_anthropic(self, url, key, model, system, user,
                         temperature, max_tokens) -> CallResult:
         body = {
             "model": model,
@@ -182,7 +193,7 @@ class ModelGateway:
             "system": system,
             "messages": [{"role": "user", "content": user}],
         }
-        data = self._post(PROVIDERS["anthropic"]["url"], body, {
+        data = self._post(url, body, {
             "x-api-key": key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
