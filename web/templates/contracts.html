@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% set zone='assets' %}{% set nav='assets.contracts_index' %}
+{% block title %}契约{% endblock %}
+{% block body %}
+<div class="eyebrow">产物契约</div>
+<p class="note">契约是平台的接口协议，早于所有 skill 存在。
+校验器按它执法：不合规的产出不落盘。审核产物时对照这里的字段规格看。</p>
+
+<table>
+<tr><th>契约</th><th>名称</th><th>版本</th><th>生产者</th><th>消费者</th></tr>
+{% for r in rows %}
+<tr>
+  <td class="mono"><a href="{{ url_for('assets.contract_detail', name=r.name) }}">{{ r.name }}</a></td>
+  <td>{{ r.c.cn_name }}</td>
+  <td class="note">v{{ r.c.version }}</td>
+  <td class="note">{{ r.c.producer }}</td>
+  <td class="note">{{ r.c.consumers|join('、') }}</td>
+</tr>
+{% endfor %}
+</table>
+
+<div class="eyebrow">流水线顺序</div>
+<p class="note">同一行并列的表示并行 —— 它们互不依赖，可以同时做。</p>
+<ol class="order">
+{% for step in order %}
+  <li>{% if step is string %}{{ step }}{% else %}{{ step|join('  +  ') }}{% endif %}</li>
+{% endfor %}
+</ol>
+{% endblock %}

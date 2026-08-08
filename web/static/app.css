@@ -60,12 +60,95 @@ a:hover { border-bottom-color: var(--stamp); }
   font-family: var(--mono); font-size: 11px; color: var(--muted);
   letter-spacing: .08em; text-transform: uppercase;
 }
+.masthead h1 a { border: none; color: inherit; }
 .masthead nav { margin-left: auto; display: flex; gap: 20px; }
-.masthead nav a { border: none; font-size: 13px; color: var(--muted); }
+.masthead nav a { border: none; font-size: var(--fs-md); color: var(--muted); }
 .masthead nav a:hover, .masthead nav a.on { color: var(--ink); }
 .masthead nav a.on { border-bottom: 2px solid var(--stamp); padding-bottom: 2px; }
 
+/* 二级导航：按当前区渲染。一级分「制作 / 资产 / 系统」，
+   这三件事的性质不同，平铺在一层就看不出哪些是一类。 */
+.subnav {
+  display: flex; gap: var(--sp-5);
+  padding: var(--sp-3) 32px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-hi);
+}
+.subnav a {
+  border: none; font-family: var(--mono); font-size: var(--fs-sm);
+  letter-spacing: .08em; color: var(--muted);
+}
+.subnav a:hover { color: var(--ink); }
+.subnav a.on { color: var(--ink); border-bottom: 1px solid var(--stamp); }
+
 main { max-width: 1080px; margin: 0 auto; padding: 28px 32px 80px; }
+
+/* ---------- 剧集上下文条 ---------- */
+.context { border-bottom: 1px solid var(--rule); padding-bottom: var(--sp-3);
+           margin-bottom: var(--sp-5); }
+.context-main { display: flex; align-items: baseline; gap: var(--sp-4);
+                flex-wrap: wrap; }
+.context h1 { font-family: var(--serif); font-size: var(--fs-3xl);
+              margin: 0; letter-spacing: .04em; }
+.context .back { font-family: var(--mono); font-size: var(--fs-sm);
+                 color: var(--muted); border: none; }
+.context .back::before { content: "← "; }
+.epswitch { display: flex; gap: var(--sp-2); align-items: baseline;
+            margin-left: auto; }
+.epswitch a {
+  font-family: var(--mono); font-size: var(--fs-base); padding: 2px 10px;
+  border: 1px solid var(--rule);
+}
+.epswitch a.on { border-color: var(--ink); background: var(--ink);
+                 color: var(--paper-hi); }
+/* 剧集级的步骤跟当前集无关，集号淡下去，避免让人以为在改这一集的东西 */
+.epswitch.muted a { opacity: .4; }
+.epswitch .epnote { font-family: var(--mono); font-size: var(--fs-xs);
+                    color: var(--stamp); }
+
+/* ---------- 流水线进度条 ---------- */
+.stepper {
+  list-style: none; margin: 0 0 var(--sp-5); padding: 0;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--sp-2);
+}
+.step { grid-row: 2; }
+.step a {
+  display: block; border: 1px solid var(--rule); border-top: 3px solid var(--rule);
+  background: var(--paper-hi); padding: var(--sp-3) var(--sp-2);
+  text-align: center;
+}
+.step a:hover { border-color: var(--muted); border-top-color: var(--muted); }
+.step-mark { display: block; font-size: var(--fs-2xl); line-height: 1.1;
+             color: var(--muted); }
+.step-no { display: block; font-family: var(--mono); font-size: var(--fs-xs);
+           color: var(--muted); letter-spacing: .1em; }
+.step-name { display: block; font-family: var(--serif); font-size: var(--fs-md);
+             margin-top: 2px; }
+
+.step.done a       { border-top-color: var(--stamp); }
+.step.done .step-mark { color: var(--stamp); }
+.step.active a     { border-top-color: var(--pending); }
+.step.active .step-mark { color: var(--pending); }
+.step.failed a     { border-top-color: var(--stamp); }
+.step.failed .step-mark { color: var(--stamp); font-weight: 700; }
+.step.current a    { border-color: var(--ink); background: var(--paper);
+                     box-shadow: inset 0 0 0 1px var(--ink); }
+
+/* ③④ 是剧集级、全集共用、且并行。不标出来的话，
+   用户在第 2 集里改角色板会把第 1 集的一起改了还不知道。
+   band 正好横跨这两列 —— 位置本身就在说「这两个是一组」。 */
+.step-band {
+  grid-column: 3 / span 2; grid-row: 1;
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--stamp);
+  text-align: center; letter-spacing: .06em;
+  border: 1px solid var(--stamp); border-bottom: none;
+  padding: 2px 0 3px;
+}
+
+.order { font-family: var(--mono); font-size: var(--fs-md);
+         line-height: 2; padding-left: 22px; }
 
 /* ---------- 区块 ---------- */
 .eyebrow {
@@ -154,9 +237,14 @@ button, .btn {
   border: 1px solid var(--ink); border-radius: 0;
   padding: 7px 16px; cursor: pointer;
 }
+.btn { display: inline-block; }
 button:hover, .btn:hover { background: var(--ink); color: var(--paper-hi); }
-button.primary { background: var(--stamp); border-color: var(--stamp); color: #fff; }
-button.primary:hover { background: #8C2716; border-color: #8C2716; }
+button.primary, .btn.primary {
+  background: var(--stamp); border-color: var(--stamp); color: #fff;
+}
+button.primary:hover, .btn.primary:hover {
+  background: #8C2716; border-color: #8C2716; color: #fff;
+}
 button:focus-visible, a:focus-visible, textarea:focus-visible,
 input:focus-visible, select:focus-visible {
   outline: 2px solid var(--stamp); outline-offset: 2px;

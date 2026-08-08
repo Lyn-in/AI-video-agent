@@ -14,15 +14,24 @@
 </head>
 <body>
 <header class="masthead">
-  <h1>生产工作台</h1>
+  <h1><a href="{{ url_for('series.inbox') }}">生产工作台</a></h1>
   <span class="sub">AI VIDEO AGENT · CALL SHEET</span>
-  <nav>
-    <a href="{{ url_for('series.index') }}" class="{{ 'on' if nav=='index' }}">剧集</a>
-    <a href="{{ url_for('skills.index') }}" class="{{ 'on' if nav=='skills' }}">Skill</a>
-    <a href="{{ url_for('directors.index') }}" class="{{ 'on' if nav=='directors' }}">导演</a>
-    <a href="{{ url_for('settings.index') }}" class="{{ 'on' if nav=='settings' }}">密钥设置</a>
+  <nav class="zones">
+    {% for z in zones %}
+    <a href="{{ url_for(z.home) }}" class="{{ 'on' if zone == z.id }}">{{ z.label }}</a>
+    {% endfor %}
   </nav>
 </header>
+
+{% set z = zone_of(zone) %}
+{% if z and z['items']|length > 1 %}
+<nav class="subnav">
+  {% for label, endpoint in z['items'] %}
+  <a href="{{ url_for(endpoint) }}" class="{{ 'on' if nav == endpoint }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+
 <main>{% block body %}{% endblock %}</main>
 </body>
 </html>

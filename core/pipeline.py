@@ -12,6 +12,7 @@ scope_of() 是产物索引口径的唯一入口。这件事必须集中：
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from core.store.artifacts import SERIES_LEVEL
@@ -51,6 +52,19 @@ def node_for(contract: str) -> Node | None:
 def episode_scope_id(series_id: str, episode_no: int) -> str:
     """集级 scope_id。与 episodes.id 的既有约定保持一致。"""
     return f"{series_id}-ep{episode_no}"
+
+
+def parse_scope(scope_type: str, scope_id: str) -> tuple[str, int | None]:
+    """
+    scope_of 的逆运算：(剧集id, 集号)。
+    待办页要从产物行反查它属于哪一集，才能给出跳转链接。
+    """
+    if scope_type == "series":
+        return scope_id, None
+    m = re.match(r"^(.*)-ep(\d+)$", scope_id or "")
+    if not m:
+        return scope_id, None
+    return m.group(1), int(m.group(2))
 
 
 def scope_of(node: Node, series_id: str,

@@ -53,6 +53,32 @@ def fail(key: tuple, msg: str) -> None:
         _JOBS[key] = {"state": "error", "msg": msg}
 
 
+def failures(series_names: dict[str, str]) -> list[dict]:
+    """
+    失败的生成任务，供待办页汇总。
+    失败只存在于任务表里 —— 产物压根没落盘（契约不过就不写），
+    所以不查 artifacts 表是看不到这些的。
+    """
+    from core.contracts import get as get_contract
+    from core.pipeline import node_for, parse_scope
+
+    out = []
+    with _LOCK:
+        items = [(k, dict(v)) for k, v in _JOBS.items()]
+    for (scope_type, scope_id, contract), job in items:
+        if job["state"] != "error":
+            continue
+        sid, ep = parse_scope(scope_type, scope_id)
+        node = node_for(contract)
+        out.append({
+            "series_id": sid, "series_name": series_names.get(sid, sid),
+            "ep": ep, "no": node.no if node else "",
+            "cn_name": get_contract(contract).cn_name,
+            "contract": contract, "msg": job["msg"],
+        })
+    return out
+
+
 def clear() -> None:
     """测试用。"""
     with _LOCK:

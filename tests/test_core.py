@@ -423,15 +423,78 @@ class TestNodeCardPolling(unittest.TestCase):
         except ImportError:
             self.skipTest("Flask 未安装")
         app = create_app()
+        row = {"no": "N2", "contract": "story_file", "skill": "writer",
+               "level": "episode", "level_cn": "集级", "cn_name": "故事档案",
+               "artifact": None, "status": None, "status_cn": "未开始",
+               "provider": "anthropic", "provider_label": "Anthropic",
+               "has_key": True, "job": None, "waiting": False}
         with app.test_request_context():
             from flask import render_template
             page = render_template(
                 "pipeline.html",
                 s={"id": "s", "name": "t", "genre_tags": [],
                    "director_id": None},
-                eps=[], ep=1, rows=[], blocked=None, directors=[],
-                missing_providers=[])
+                eps=[], ep=1, rows=[row], blocked=None, current=row,
+                directors=[], missing_providers=[])
         self.assertNotIn("http-equiv=\"refresh\"", page)
+
+
+class TestScopeRoundTrip(unittest.TestCase):
+    """scope_of 与 parse_scope 必须互为逆运算 —— 待办页靠它反查剧集和集号。"""
+
+    def test_round_trip(self):
+        from core.pipeline import NODES, parse_scope, scope_of
+        for n in NODES:
+            for ep in (None, 1, 2, 17):
+                with self.subTest(contract=n.contract, ep=ep):
+                    sid, got_ep = parse_scope(*scope_of(n, "my-series", ep))
+                    self.assertEqual(sid, "my-series")
+                    # 剧集级产物不带集号，集号回来是 None 是对的
+                    want = None if n.level == "series" else ep
+                    self.assertEqual(got_ep, want)
+
+    def test_series_id_with_dashes_survives(self):
+        """剧集 id 本身带连字符时不能被切错。"""
+        from core.pipeline import node_for, parse_scope, scope_of
+        n = node_for("story_file")
+        self.assertEqual(parse_scope(*scope_of(n, "s-54b93-x", 3)),
+                         ("s-54b93-x", 3))
+
+
+class TestNavigation(unittest.TestCase):
+    """
+    三区导航：制作是动线，资产是攒的东西，系统是配置。
+    每个模板都得声明自己属于哪一区，否则二级导航会空掉。
+    """
+
+    def setUp(self):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.c = create_app().test_client()
+
+    def test_every_zone_endpoint_resolves(self):
+        from web.nav import ZONES
+        for z in ZONES:
+            for label, endpoint in z["items"]:
+                with self.subTest(endpoint=endpoint):
+                    self.assertEqual(self.c.get(_url(self.c, endpoint)).status_code,
+                                     200, f"{label} 打不开")
+
+    def test_pages_declare_a_zone(self):
+        """页面漏了 zone，二级导航就不渲染 —— 用户会觉得导航时有时无。"""
+        for path, zone in (("/", "制作"), ("/series", "制作"),
+                           ("/skills", "资产"), ("/directors", "资产"),
+                           ("/contracts", "资产"), ("/settings", "系统")):
+            with self.subTest(path=path):
+                body = self.c.get(path).get_data(as_text=True)
+                self.assertIn(f'class="on">{zone}</a>', body,
+                              f"{path} 没标出所属区")
+
+
+def _url(client, endpoint):
+    return client.application.url_map.bind("localhost").build(endpoint)
 
 
 class TestSkillExport(unittest.TestCase):

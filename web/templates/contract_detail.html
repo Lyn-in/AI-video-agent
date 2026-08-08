@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% set zone='assets' %}{% set nav='assets.contracts_index' %}
+{% import "components/ui.html" as ui %}
+{% block title %}{{ c.cn_name }}{% endblock %}
+{% block body %}
+<div class="eyebrow"><a href="{{ url_for('assets.contracts_index') }}">契约</a> · {{ c.cn_name }}</div>
+<div class="sheet">
+  <div class="sheet-head"><h2>{{ c.cn_name }}</h2>
+    <span class="scope">{{ c.name }} v{{ c.version }}</span></div>
+  {{ ui.meta(['生产者 ' ~ c.producer, '消费者 ' ~ c.consumers|join('、')]) }}
+</div>
+
+<div class="eyebrow">字段规格</div>
+<p class="note">带 * 的是必填。这份规格会原样注入给模型，也是校验器执法的依据。</p>
+<pre>{{ spec }}</pre>
+{% endblock %}

@@ -46,6 +46,15 @@
     <p class="tight">{{ r.job.msg }}</p></div>
   {% endif %}
 
+  {# 已经有产物在等着看的时候，主动作是「去审」而不是「再生成一版」——
+     否则最该做的那件事被埋在表单底下。 #}
+  {% if r.artifact and r.status in ('pending_review', 'revised') %}
+  <div class="actions mt-3">
+    <a class="btn primary"
+       href="{{ url_for('artifacts.artifact', aid=r.artifact.id) }}">去审这一版</a>
+  </div>
+  {% endif %}
+
   {% if not r.has_key %}
     <div class="warn mt-3">缺 {{ r.provider_label }} 密钥，
       去<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下。</div>

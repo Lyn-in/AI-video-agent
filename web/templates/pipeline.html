@@ -1,21 +1,30 @@
-{% extends "base.html" %}{% set nav='index' %}
+{% extends "base.html" %}{% set zone='make' %}{% set nav='series.index' %}
 {% import "components/ui.html" as ui %}
 {% import "components/node.html" as nc %}
+{% import "components/stepper.html" as st %}
 {% block title %}{{ s.name }} · 流水线{% endblock %}
 {% block body %}
-{# 整页不再定时重载。生成中的节点卡自己轮询自己（见 components/node.html），
-   页面其余部分不动，输入到一半的 brief 也不会被冲掉。 #}
-<div class="eyebrow">流水线 · {{ s.name }}</div>
-{{ ui.meta(['剧集 ' ~ s.id, '导演 ' ~ s.director_id if s.director_id else '未指定导演']) }}
 
-{% if eps %}
-<div class="epbar">
-  {% for e in eps %}
-  <a href="{{ url_for('series.pipeline', sid=s.id, ep=e.episode_no) }}"
-     class="{{ 'on' if e.episode_no == ep }}">第 {{ e.episode_no }} 集</a>
-  {% endfor %}
+{# 常驻上下文切换器：当前在做哪一部、哪一集。
+   进到剧集级的步骤时集号会变灰 —— 那一步是全集共用的，跟当前集无关。 #}
+<div class="context">
+  <div class="context-main">
+    <a href="{{ url_for('series.index') }}" class="back">剧集</a>
+    <h1>{{ s.name }}</h1>
+    {% if eps %}
+    <div class="epswitch {{ 'muted' if current.level == 'series' }}">
+      {% for e in eps %}
+      <a href="{{ url_for('series.pipeline', sid=s.id, ep=e.episode_no, step=current.contract) }}"
+         class="{{ 'on' if e.episode_no == ep }}">第 {{ e.episode_no }} 集</a>
+      {% endfor %}
+      {% if current.level == 'series' %}<span class="epnote">本步全集共用</span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {{ ui.meta([s.id, '导演 ' ~ s.director_id if s.director_id else '未指定导演']) }}
 </div>
-{% endif %}
+
+{{ st.stepper(rows, s, ep, current) }}
 
 {% if missing_providers %}
 <div class="err"><strong>还没有配置密钥：{{ missing_providers|join('、') }}。</strong>
@@ -23,22 +32,21 @@
 <a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下，不用碰命令行。</div>
 {% endif %}
 
-{% if blocked %}
+{% if blocked and blocked.contract != current.contract %}
 <div class="warn">当前卡在 <strong>{{ blocked.no }} {{ blocked.cn_name }}</strong>
-（{{ blocked.status_cn }}）。上游未通过，下游不启动。</div>
-{% else %}
+（{{ blocked.status_cn }}）。上游未通过，下游不启动。
+<a href="{{ url_for('series.pipeline', sid=s.id, ep=ep, step=blocked.contract) }}">去处理</a></div>
+{% elif not blocked %}
 <div class="warn">五个节点全部通过，可以进入视频生成。</div>
 {% endif %}
 
-{% for r in rows %}{{ nc.node_card(r, s, ep, directors) }}{% endfor %}
-
-{% if directors %}
-<div class="eyebrow">可选导演</div>
-<table>
-<tr><th>ID</th><th>导演</th><th>风格</th></tr>
-{% for d in directors %}
-<tr><td class="mono">{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.one_line }}</td></tr>
-{% endfor %}
-</table>
+{# 工作面：这一步该干什么就显示什么。
+   未开始 → 生成表单；生成中 → 进度；已有产物 → 审核入口。
+   三态原先劈在两个页面上（生成表单在流水线、审核门在产物页），来回跳。 #}
+<div class="eyebrow">{{ current.no }} {{ current.cn_name }} · 工作面</div>
+{% if current.waiting %}
+<div class="warn">这一步还没轮到 —— 先把上游做通过。</div>
 {% endif %}
+{{ nc.node_card(current, s, ep, directors) }}
+
 {% endblock %}

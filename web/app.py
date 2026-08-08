@@ -25,12 +25,13 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from web.deps import store                                    # noqa: E402
+from web.nav import ZONES, zone_of                            # noqa: E402
 from web.views import (                                       # noqa: E402
-    artifacts, directors, fragments, series, settings, skills,
+    artifacts, assets, directors, fragments, series, settings, skills,
 )
 
 BLUEPRINTS = (series.bp, artifacts.bp, skills.bp, directors.bp, settings.bp,
-              fragments.bp)
+              assets.bp, fragments.bp)
 
 
 def create_app() -> Flask:
@@ -38,6 +39,11 @@ def create_app() -> Flask:
     store.init()
     for bp in BLUEPRINTS:
         app.register_blueprint(bp)
+
+    @app.context_processor
+    def inject_nav():
+        # 导航结构给所有模板用，省得每个视图都往 render_template 里塞一遍。
+        return {"zones": ZONES, "zone_of": zone_of}
 
     @app.template_filter("shortid")
     def shortid(v):

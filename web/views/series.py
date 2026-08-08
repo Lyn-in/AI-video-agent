@@ -6,14 +6,14 @@ import json
 import threading
 import traceback
 
-from flask import (Blueprint, abort, current_app, redirect, render_template,
-                   request, url_for)
+from flask import (Blueprint, abort, current_app, make_response, redirect,
+                   render_template, request, url_for)
 
 from core import contracts
 from core.engine.runner import RunError, resolve_director, run_node
 from core.gateway import keystore
 from core.gateway.client import PROVIDERS
-from core.pipeline import NODES, node_for, scope_of
+from core.pipeline import NODES, node_for, parse_scope, scope_of
 from core.skillkit.director import discover_directors
 from core.skillkit.package import SkillPackage
 from web import jobs
@@ -23,8 +23,7 @@ from web.deps import (CALL_LOG, SKILLS, STATUS_CN, astore, provider_of,
 bp = Blueprint("series", __name__)
 
 
-@bp.route("/")
-def index():
+def _all_series() -> list[dict]:
     with store.conn() as c:
         rows = [dict(r) for r in c.execute(
             "SELECT s.*, col.name AS collection_name, a.name AS account_name "
@@ -37,7 +36,46 @@ def index():
             s["episodes"] = [dict(r) for r in c.execute(
                 "SELECT * FROM episodes WHERE series_id=? ORDER BY episode_no",
                 (s["id"],)).fetchall()]
-    return render_template("index.html", series=rows)
+    return rows
+
+
+@bp.route("/")
+def inbox():
+    """
+    待办。
+
+    工作流里第一个问题不是「我有哪些剧集」，是「哪些东西在等我」——
+    原先首页是「新建剧集 + 剧集列表」，这个问题没有落脚点，
+    待审的节点散在各个流水线页里，得一个个点进去看。
+    """
+    names = {s["id"]: s["name"] for s in _all_series()}
+    waiting, redo = [], []
+    for row in store.list_artifacts():
+        sid, ep = parse_scope(row["scope_type"], row["scope_id"])
+        node = node_for(row["contract"])
+        item = {
+            "aid": row["id"], "series_id": sid, "series_name": names.get(sid, sid),
+            "ep": ep, "no": node.no if node else "",
+            "cn_name": contracts.get(row["contract"]).cn_name,
+            "status": row["status"],
+            "status_cn": STATUS_CN.get(row["status"], row["status"]),
+            "updated_at": row["updated_at"],
+        }
+        if row["status"] in ("pending_review", "revised"):
+            waiting.append(item)
+        elif row["status"] == "generating":
+            redo.append(item)
+
+    waiting.sort(key=lambda x: x["updated_at"] or "", reverse=True)
+    redo.sort(key=lambda x: x["updated_at"] or "", reverse=True)
+    return render_template("inbox.html", waiting=waiting, redo=redo,
+                           failed=jobs.failures(names),
+                           has_series=bool(names))
+
+
+@bp.route("/series")
+def index():
+    return render_template("series_list.html", series=_all_series())
 
 
 def load_series(sid: str) -> tuple[dict, list[dict]]:
@@ -97,9 +135,15 @@ def pipeline(sid):
         ep = eps[0]["episode_no"]
     rows = node_rows(sid, ep)
     blocked = next((r for r in rows if r.get("is_block")), None)
+
+    # 默认停在卡点那一步 —— 打开页面就是「该干的那件事」，
+    # 和待办首页同一个思路，只是范围收到这一部剧。
+    want = request.args.get("step")
+    current = (next((r for r in rows if r["contract"] == want), None)
+               or blocked or rows[-1])
     return render_template(
         "pipeline.html", s=s, eps=eps, ep=ep, rows=rows, blocked=blocked,
-        directors=discover_directors(SKILLS),
+        current=current, directors=discover_directors(SKILLS),
         missing_providers=sorted({r["provider_label"] for r in rows
                                   if not r["has_key"]}))
 
@@ -158,8 +202,24 @@ def render_node(sid: str, contract: str, ep: int | None):
                None)
     if row is None:
         abort(404)
-    return render_template("fragments/node.html", r=row, s=s, ep=ep,
+    html = render_template("fragments/node.html", r=row, s=s, ep=ep,
                            directors=discover_directors(SKILLS))
+    resp = make_response(html)
+    # 任务收尾的这一次（也是轮询的最后一次）通知上方的进度条刷新，
+    # 否则卡片变了、进度条上的标记还停在「生成中」。
+    if row["job"] and row["job"]["state"] in ("done", "error"):
+        resp.headers["HX-Trigger"] = "nodeSettled"
+    return resp
+
+
+def render_stepper(sid: str, ep: int | None, step: str | None):
+    s, _ = load_series(sid)
+    rows = node_rows(sid, ep)
+    blocked = next((r for r in rows if r.get("is_block")), None)
+    current = (next((r for r in rows if r["contract"] == step), None)
+               or blocked or rows[-1])
+    return render_template("fragments/stepper.html", rows=rows, s=s, ep=ep,
+                           current=current)
 
 
 def _run_job(app, key, sid, node, opts):

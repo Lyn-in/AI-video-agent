@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from flask import Blueprint, request
 
-from web.views.series import render_node
+from web.views.series import render_node, render_stepper
 
 bp = Blueprint("fragments", __name__, url_prefix="/f")
 
@@ -18,3 +18,9 @@ bp = Blueprint("fragments", __name__, url_prefix="/f")
 @bp.route("/node/<sid>/<contract>")
 def node(sid, contract):
     return render_node(sid, contract, request.args.get("ep", type=int) or 1)
+
+
+@bp.route("/stepper/<sid>")
+def stepper(sid):
+    return render_stepper(sid, request.args.get("ep", type=int) or 1,
+                          request.args.get("step"))
