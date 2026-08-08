@@ -12,7 +12,9 @@
 <script src="{{ url_for('static', filename='vendor/htmx.min.js') }}" defer></script>
 {% block head %}{% endblock %}
 </head>
-<body>
+{# HTMX 的请求走不到表单的 hidden 字段，统一挂在 body 上带 header。
+   两条路都通：原生表单用 hidden input，HTMX 用这个。 #}
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token() }}"}'>
 <header class="masthead">
   <h1><a href="{{ url_for('series.inbox') }}">生产工作台</a></h1>
   <span class="sub">AI VIDEO AGENT · CALL SHEET</span>
@@ -20,6 +22,11 @@
     {% for z in zones %}
     <a href="{{ url_for(z.home) }}" class="{{ 'on' if zone == z.id }}">{{ z.label }}</a>
     {% endfor %}
+    {% if locked %}
+    <form method="post" action="{{ url_for('auth.logout') }}" class="logout">
+      {{ csrf_input() }}<button type="submit">退出</button>
+    </form>
+    {% endif %}
   </nav>
 </header>
 

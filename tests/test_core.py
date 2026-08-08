@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -437,6 +438,96 @@ class TestNodeCardPolling(unittest.TestCase):
                 eps=[], ep=1, rows=[row], blocked=None, current=row,
                 directors=[], missing_providers=[])
         self.assertNotIn("http-equiv=\"refresh\"", page)
+
+
+class TestSecurity(unittest.TestCase):
+    """
+    CSRF 是本机自用也必须做的：工作台在 127.0.0.1，但同源策略拦不住
+    跨站表单提交 —— 别的标签页里的网页能悄悄 POST 到你的 localhost，
+    盖章、合入 skill 建议、清掉密钥、或者触发一串烧钱的模型调用。
+
+    口令相反，只有对外暴露才需要，默认不开（本机自用加登录纯属添堵）。
+    """
+
+    def setUp(self):
+        try:
+            from web import security
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.security = security
+        # 测试期间不碰用户真实的 auth.json
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self._orig = security.AUTH_FILE
+        security.AUTH_FILE = self.tmp / "auth.json"
+        self.addCleanup(setattr, security, "AUTH_FILE", self._orig)
+        self.app = create_app()
+        self.c = self.app.test_client()
+
+    def _token(self, path="/series"):
+        body = self.c.get(path).get_data(as_text=True)
+        m = re.search(r'name="_csrf" value="([^"]+)"', body)
+        self.assertIsNotNone(m, f"{path} 页面里没有 CSRF token")
+        return m.group(1)
+
+    def test_post_without_token_rejected(self):
+        r = self.c.post("/series/new", data={"name": "跨站建的"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_post_with_token_works(self):
+        r = self.c.post("/series/new",
+                        data={"name": "认领", "_csrf": self._token()})
+        self.assertEqual(r.status_code, 302)
+
+    def test_htmx_header_path_works(self):
+        """HTMX 的请求到不了表单 hidden 字段，走 header。两条路都得通。"""
+        tok = self._token()
+        r = self.c.post("/system/export", data={"fmt": "plain"},
+                        headers={"X-CSRFToken": tok})
+        self.assertEqual(r.status_code, 302)
+
+    def test_token_present_inside_macro_rendered_form(self):
+        """
+        节点卡是 {% import %} 进来的宏，拿不到 context processor ——
+        csrf_input 曾经因此在卡片里静默失效，表单全都提交不了。
+        """
+        tok = self._token()
+        r = self.c.post("/series/new", data={"name": "认领", "_csrf": tok})
+        card = self.c.get(r.headers["Location"]).get_data(as_text=True)
+        self.assertIn('name="_csrf"', card, "节点卡表单里丢了 token")
+
+    def test_no_password_means_no_login(self):
+        self.assertFalse(self.security.has_password())
+        self.assertEqual(self.c.get("/").status_code, 200)
+
+    def test_password_gates_everything(self):
+        self.security.set_password("hunter22")
+        c2 = self.app.test_client()          # 新会话
+        r = c2.get("/")
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("/login", r.headers["Location"])
+
+        tok = re.search(r'name="_csrf" value="([^"]+)"',
+                        c2.get("/login").get_data(as_text=True)).group(1)
+        bad = c2.post("/login", data={"password": "wrong", "_csrf": tok})
+        self.assertIn("口令不对", bad.get_data(as_text=True))
+        ok = c2.post("/login", data={"password": "hunter22", "_csrf": tok})
+        self.assertEqual(ok.status_code, 302)
+        self.assertEqual(c2.get("/").status_code, 200)
+
+    def test_password_not_stored_in_plaintext(self):
+        self.security.set_password("hunter22")
+        raw = self.security.AUTH_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("hunter22", raw)
+        self.assertTrue(self.security.check_password("hunter22"))
+        self.assertFalse(self.security.check_password("hunter23"))
+
+    def test_is_local(self):
+        for h in ("127.0.0.1", "localhost", "::1"):
+            self.assertTrue(self.security.is_local(h))
+        for h in ("0.0.0.0", "192.168.1.5", ""):
+            self.assertFalse(self.security.is_local(h), h)
 
 
 class TestCliGapClosed(unittest.TestCase):

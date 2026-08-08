@@ -75,6 +75,7 @@
   <p class="my-2">{{ prop.data.evidence_summary }}</p>
 </div>
 <form method="post" action="{{ url_for('skills.proposal_apply', sid=p.id) }}">
+    {{ csrf_input() }}
   {% for s in prop.suggestions %}
   <div class="sheet">
     <label class="inline">
@@ -98,6 +99,7 @@
 
 <div class="eyebrow">SKILL.md</div>
 <form method="post" action="{{ url_for('skills.save', sid=p.id) }}">
+    {{ csrf_input() }}
   <textarea name="body" rows="30">{{ p.skill_md }}</textarea>
   <label>改动说明</label>
   <input type="text" name="note" placeholder="这次改了什么、为什么">

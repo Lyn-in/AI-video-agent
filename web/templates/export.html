@@ -6,6 +6,7 @@
 平台只是把它们编排起来的壳子，所以 skill 可以单独拿出去用。</p>
 
 <form method="post" action="{{ url_for('system.do_export') }}">
+    {{ csrf_input() }}
   {% for key, (label, _fn, hint) in formats.items() %}
   <label class="inline">
     <input type="checkbox" name="fmt" value="{{ key }}" checked>

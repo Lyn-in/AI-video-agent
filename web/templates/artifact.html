@@ -28,6 +28,7 @@
 {# ---------- 动作放在最前面：读完就在这儿处理，不用滚到底 ---------- #}
 <div class="gate-actions">
   <form method="post" action="{{ url_for('artifacts.approve', aid=aid) }}">
+    {{ csrf_input() }}
     <button type="submit" class="primary"
       {% if art.status == 'approved' %}disabled{% endif %}>
       {{ '已盖章通过' if art.status == 'approved' else '盖章通过' }}</button>
@@ -35,6 +36,7 @@
   <details class="reject">
     <summary>打回重做</summary>
     <form method="post" action="{{ url_for('artifacts.reject', aid=aid) }}">
+    {{ csrf_input() }}
       <label>修改意见（必填）</label>
       <textarea name="notes" rows="3" required
         placeholder="写清楚哪里不对、该往哪个方向改。意见会拼进重生成的提示词。"></textarea>
@@ -80,6 +82,7 @@
 <p class="note">改完保存会重新过契约校验，不合规不落盘；
 改动会归集到 <code>{{ art.produced_by.skill }}</code> 的 feedback，喂给质量飞轮。</p>
 <form method="post" action="{{ url_for('artifacts.save', aid=aid) }}">
+    {{ csrf_input() }}
   {% for b in blocks %}
   <div class="block {{ 'has-err' if b.errors }}">
     <label for="f_{{ b.name }}">
@@ -102,6 +105,7 @@
   <summary class="note">高级：直接编辑整份 JSON</summary>
   <p class="note">分块编辑处理不了的极端情况用它。改坏了不会落盘。</p>
   <form method="post" action="{{ url_for('artifacts.save_raw', aid=aid) }}">
+    {{ csrf_input() }}
     <textarea name="payload" rows="24">{{ raw }}</textarea>
     <div class="actions"><button type="submit">按整份 JSON 保存</button></div>
   </form>

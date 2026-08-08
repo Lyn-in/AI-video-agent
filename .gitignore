@@ -4,4 +4,6 @@ config/platform.db
 config/calls.jsonl
 config/secrets.env
 config/secrets.json
+config/auth.json
+config/session.key
 projects/

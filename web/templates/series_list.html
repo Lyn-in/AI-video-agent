@@ -4,6 +4,7 @@
 {% block body %}
 <div class="eyebrow">新建剧集</div>
 <form method="post" action="{{ url_for('series.series_new') }}">
+    {{ csrf_input() }}
   <label>剧集名字</label>
   <input type="text" name="name" placeholder="比如：认领" required>
   <label>题材（可留空，多个用逗号隔开）</label>

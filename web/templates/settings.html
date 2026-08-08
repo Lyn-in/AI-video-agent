@@ -24,6 +24,7 @@
 
   {% if r.source != 'env' %}
   <form method="post" action="{{ url_for('settings.save', provider=r.id) }}" class="mt-4">
+    {{ csrf_input() }}
     <label>{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
     <input type="password" name="key" placeholder="{{ r.masked or ('粘贴 ' + r.label + ' 的密钥') }}" autocomplete="off">
     <div class="actions">
@@ -37,6 +38,35 @@
   {% endif %}
 </div>
 {% endfor %}
+
+<div class="eyebrow">访问口令</div>
+<p class="note">本机自己用<strong>不需要设</strong>——设了每次打开都要登一次。
+要把工作台开给别人访问（哪怕只是同一个局域网）才用得上：
+一旦把服务绑到非 localhost，没设口令是不许启动的。</p>
+{% if has_password %}
+<div class="sheet done">
+  <div class="sheet-head"><h2>已设口令</h2></div>
+  <div class="stamp">已上锁</div>
+  <p class="note">忘了口令：删掉 <code>config/auth.json</code> 重启即可。</p>
+  <form method="post" action="{{ url_for('settings.clear_password') }}" class="mt-4">
+    {{ csrf_input() }}
+    <div class="actions">
+      <button type="submit" onclick="return confirm('取消口令？之后任何人都能直接打开工作台。')">取消口令</button>
+      <button type="submit" formaction="{{ url_for('auth.logout') }}">退出登录</button>
+    </div>
+  </form>
+</div>
+{% else %}
+<div class="sheet">
+  <div class="stamp none">未上锁</div>
+  <form method="post" action="{{ url_for('settings.set_password') }}">
+    {{ csrf_input() }}
+    <label>设一个口令（至少 6 位）</label>
+    <input type="password" name="password" minlength="6" autocomplete="new-password">
+    <div class="actions"><button type="submit">设置口令</button></div>
+  </form>
+</div>
+{% endif %}
 
 <div class="note mt-6">
   没有想用的厂商没列在这里？在 <code>core/gateway/client.py</code> 的 <code>PROVIDERS</code>

@@ -56,9 +56,12 @@
   {% endif %}
 
   {% if not r.has_key %}
-    <div class="warn mt-3">缺 {{ r.provider_label }} 密钥，
-      去<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下。</div>
-  {% elif not (r.job and r.job.state == 'running') %}
+    <div class="warn mt-3">缺 {{ r.provider_label }} 密钥，真跑不了。
+      去<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下。
+      没密钥也可以先试跑，看看这一步产出长什么样。</div>
+  {% endif %}
+
+  {% if not (r.job and r.job.state == 'running') %}
     {# 表单保留原生 action/method：没加载 JS 时整页提交照样能用，
        HTMX 只是把它变成局部替换。 #}
     <form method="post"
@@ -66,6 +69,7 @@
           hx-post="{{ url_for('series.start_run', sid=s.id, contract=r.contract) }}"
           hx-target="#node-{{ r.contract }}"
           hx-swap="outerHTML">
+    {{ csrf_input() }}
       <input type="hidden" name="ep" value="{{ ep or 1 }}">
       {% if r.contract == 'story_file' %}
         <label>想拍什么（一句话就行）</label>
@@ -80,13 +84,19 @@
           {% for d in directors %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
         </select>
       {% endif %}
+      {# 没密钥时锁死在试跑：dry-run 本来就不调模型，
+         正是这种情况下最该给的路，不该被密钥闸一起挡掉。 #}
       <label class="inline mt-3">
-        <input type="checkbox" name="dry_run" value="1">
+        <input type="checkbox" name="dry_run" value="1"
+               {% if not r.has_key %}checked disabled{% endif %}>
         <span>试跑（不调模型、不花钱，用占位内容跑通流程看看长什么样）</span>
       </label>
+      {% if not r.has_key %}<input type="hidden" name="dry_run" value="1">{% endif %}
       <div class="actions">
-        <button type="submit" {% if not r.status %}class="primary"{% endif %}>
-          {{ '重新生成' if r.status else '生成这一步' }}</button>
+        <button type="submit"
+                {% if not r.status and r.has_key %}class="primary"{% endif %}>
+          {% if not r.has_key %}试跑这一步
+          {% else %}{{ '重新生成' if r.status else '生成这一步' }}{% endif %}</button>
       </div>
     </form>
   {% endif %}

@@ -384,3 +384,15 @@ pre {
   .masthead { padding: 14px 18px 10px; gap: 14px; }
   .stamp { position: static; display: inline-block; margin-top: 10px; }
 }
+
+/* ---------- 登录页 ---------- */
+.login {
+  max-width: 380px; margin: 14vh auto; padding: 0 var(--sp-5);
+}
+.login h2 { font-size: var(--fs-3xl); margin: 0 0 var(--sp-5); }
+.masthead .logout { display: inline; margin: 0; }
+.masthead .logout button {
+  border: none; background: none; padding: 0;
+  font-family: var(--sans); font-size: var(--fs-md); color: var(--muted);
+}
+.masthead .logout button:hover { background: none; color: var(--stamp); }

@@ -16,6 +16,7 @@
 <form method="post" action="{{ url_for('skills.suggest', sid=sid) }}"
       hx-post="{{ url_for('skills.suggest', sid=sid) }}"
       hx-target="#suggest-box" hx-swap="outerHTML">
+    {{ csrf_input() }}
   <div class="actions">
     <button type="submit" {% if stats.count < min_samples %}
       title="样本少于 {{ min_samples }} 条，生成的建议不可信"{% endif %}>

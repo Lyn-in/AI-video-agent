@@ -178,15 +178,24 @@ def cmd_web(args):
         print("     pip install flask --break-system-packages")
         sys.exit(1)
 
-    if args.host != "127.0.0.1":
-        print(f"{WARN} 你把工作台绑到了 {args.host}。")
-        print("     工作台目前没有任何鉴权和 CSRF 防护 ——")
-        print("     任何能访问到它的人都能改 SKILL.md、盖章、合入建议。")
-        print("     只在可信内网这么做，绝不要暴露到公网。")
+    from web import security
+    if not security.is_local(args.host):
+        # 原先这里只打印一行警告然后照常暴露。警告拦不住事故 ——
+        # 绑到非 localhost 就是要给别人访问，那就必须先上锁。
+        if not security.has_password():
+            print(f"{BAD} 你把工作台绑到了 {args.host}，但还没设访问口令。")
+            print("     任何能访问到它的人都能改 SKILL.md、盖章通过、")
+            print("     合入 skill 建议、读走你所有产物。")
+            print()
+            print("     先在「系统 → 密钥」页设一个口令（本机启动即可设），")
+            print("     或者直接用默认的 127.0.0.1 自己用。")
+            sys.exit(1)
+        print(f"{WARN} 工作台绑在 {args.host}，已启用口令保护。")
+        print("     它仍然是明文 HTTP，只在可信内网这么做，别暴露到公网。")
         print()
     if args.debug:
-        print(f"{WARN} debug 模式开启。Werkzeug 调试器可在页面上执行代码，")
-        print("     配合无鉴权等于开后门。仅在本机排查问题时使用。")
+        print(f"{WARN} debug 模式开启。Werkzeug 调试器能在页面上执行任意代码，")
+        print("     等于开一个后门。仅在本机排查问题时使用。")
         print()
 
     print(f"{OK} 生产工作台: http://{args.host}:{args.port}")
@@ -965,9 +974,23 @@ def cmd_smoke(args):
                 fails.append("审核门顺序错乱：应当先读（引用申报）再改")
             else:
                 print(f"  {OK} 审核门：读 → 判断 → 改（引用申报在编辑区之前）")
+            # CSRF：写操作必须带 token，页面里取一个真的来用
+            import re as _re
+            m = _re.search(r'name="_csrf" value="([^"]+)"', body)
+            if not m:
+                fails.append("页面里没有 CSRF token，写操作会全部失败")
+                tok = ""
+            else:
+                tok = m.group(1)
+                if c.post(f"/artifact/{srow['id']}/approve").status_code != 400:
+                    fails.append("无 token 的写操作没有被拒 —— CSRF 防护失效")
+                else:
+                    print(f"  {OK} CSRF：无凭据的写操作被拒（跨站表单提交拦得住）")
+
             # 分块编辑：一处写坏不该把整次编辑作废
             r = c.post(f"/artifact/{srow['id']}/save",
-                       data={"f_title": "改过的", "f_synopsis": "{坏的"})
+                       data={"f_title": "改过的", "f_synopsis": "{坏的",
+                             "_csrf": tok})
             b2 = r.get_data(as_text=True)
             if r.status_code == 400 and "改过的" in b2 and "JSON 格式有误" in b2:
                 print(f"  {OK} 分块编辑：一处写坏只标那一块，其余编辑不丢")

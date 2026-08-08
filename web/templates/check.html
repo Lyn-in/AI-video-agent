@@ -5,6 +5,7 @@
 <p class="note">跑一遍全链路自检：契约执法、skill 规范、导演注入、
 审核门、质量飞轮，外加整套回归测试。改过东西之后跑一下，确认没弄坏别的。</p>
 <form method="post" action="{{ url_for('system.run_check') }}">
+    {{ csrf_input() }}
   <div class="actions"><button type="submit" class="primary">开始自检</button>
     <span class="note">要跑十几秒，页面会等着</span></div>
 </form>
