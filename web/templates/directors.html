@@ -1,9 +1,42 @@
 {% extends "base.html" %}{% set zone='assets' %}{% set nav='directors.index' %}
+{% block title %}导演{% endblock %}
 {% block body %}
+<div class="eyebrow">导演匹配器</div>
+<p class="note">填题材，按匹配度排序。<strong>只推荐，不替你选</strong> ——
+风格是创作决定，机器给的是候选和理由。</p>
+<form method="get" action="{{ url_for('directors.index') }}">
+  <label>题材（多个用逗号隔开）</label>
+  <input type="text" name="genre" value="{{ tags|join('、') }}"
+         placeholder="比如：武侠, 打脸, 逆袭">
+  <div class="actions"><button type="submit" class="primary">看谁合适</button></div>
+</form>
+
+{% if tags %}
+  {% if matches %}
+  <table>
+  <tr><th>导演</th><th>匹配</th><th>命中题材</th><th>风格</th></tr>
+  {% for m in matches %}
+  <tr class="{{ 'top' if loop.first and m.score }}">
+    <td>{{ m.name }} <span class="note mono">{{ m.id }}</span></td>
+    <td class="mono">{{ m.score }}</td>
+    <td>{% for h in m.hit %}<span class="tag">{{ h }}</span>{% endfor %}
+        {% if not m.hit %}<span class="note">无</span>{% endif %}</td>
+    <td class="note">{{ m.one_line }}</td>
+  </tr>
+  {% endfor %}
+  </table>
+  {% if not matches[0].score %}
+  <p class="note">没有导演擅长这些题材。可以照选 —— 但产出会缺风格支撑。</p>
+  {% endif %}
+  {% else %}
+  <p class="note">导演库是空的。</p>
+  {% endif %}
+{% endif %}
+
 <div class="eyebrow">导演库</div>
 <p class="note">导演不是流水线节点，是注入到每次调用的风格约束层。
 同一个编剧 skill 在不同导演下产出完全不同的剧本。
-作家不吃导演上下文——故事在前，导演在后。</p>
+作家不吃导演上下文 —— 故事在前，导演在后。</p>
 {% for x in ds %}
 <div class="sheet">
   <div class="sheet-head"><h2>{{ x.d.name }}</h2>
@@ -14,5 +47,4 @@
     {% for e in x.errs %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
 </div>
 {% endfor %}
-<p class="note">盲测：<code>avctl blindtest playwright --directors A B --input &lt;故事档案&gt;</code></p>
 {% endblock %}

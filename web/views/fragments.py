@@ -11,8 +11,14 @@ from __future__ import annotations
 from flask import Blueprint, request
 
 from web.views.series import render_node, render_stepper
+from web.views.skills import render_suggest
 
 bp = Blueprint("fragments", __name__, url_prefix="/f")
+
+
+@bp.route("/suggest/<sid>")
+def suggest(sid):
+    return render_suggest(sid)
 
 
 @bp.route("/node/<sid>/<contract>")

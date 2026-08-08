@@ -59,13 +59,8 @@
   <div class="warn mt-3">修改分布在多个导演下。
   若集中于某一个导演，问题可能出在导演约束而非 skill 本体——改错地方会越改越糟。</div>
   {% endif %}
-  {% if stats.count < min_samples %}
-  <p class="note">攒够 {{ min_samples }} 条再生成建议。
-  样本太少会把偶然当规律。</p>
-  {% else %}
-  <p class="note">生成建议：<code>avctl flywheel suggest {{ p.id }}</code></p>
-  {% endif %}
 </div>
+{% include "fragments/suggest.html" %}
 {% else %}
 <p class="note">还没有反馈。你在审核门里改的每一处都会归集到这里，
 攒够 {{ min_samples }} 条就能生成 skill 改进建议。</p>

@@ -183,6 +183,7 @@ def start_run(sid, contract):
                       .split(",") if x.strip()],
             "director": request.form.get("director") or None,
             "ep": ep,
+            "dry_run": bool(request.form.get("dry_run")),
         }
         threading.Thread(
             target=_run_job,
@@ -252,5 +253,5 @@ def _do_run(sid, node, opts):
         account=crow["account_id"] if crow else "default", collection=acc,
         brief=opts.get("brief", ""), genre_tags=opts.get("genre"),
         director=resolve_director(SKILLS, director_id, pkg),
-        log_path=CALL_LOG,
+        log_path=CALL_LOG, dry_run=opts.get("dry_run", False),
     )

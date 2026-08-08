@@ -439,6 +439,60 @@ class TestNodeCardPolling(unittest.TestCase):
         self.assertNotIn("http-equiv=\"refresh\"", page)
 
 
+class TestCliGapClosed(unittest.TestCase):
+    """
+    原先只有命令行有的能力，界面上得够得着。
+    最要紧的是飞轮：界面能审批建议，却生成不了建议 —— 闭环是断的。
+    """
+
+    def setUp(self):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.c = create_app().test_client()
+
+    def test_suggest_route_exists(self):
+        rules = {str(r.rule) for r in self.c.application.url_map.iter_rules()}
+        self.assertIn("/skills/<sid>/suggest", rules,
+                      "界面生成不了建议，只能审批 —— 闭环断了")
+
+    def test_director_matcher_ranks(self):
+        """recommend() 一直存在但界面够不着，只有 avctl director match 能跑。"""
+        body = self.c.get("/directors?genre=武侠").get_data(as_text=True)
+        self.assertIn("导演匹配器", body)
+        self.assertIn("命中题材", body)
+
+    def test_system_pages(self):
+        for path in ("/system/export", "/system/check", "/system/cost"):
+            with self.subTest(path=path):
+                self.assertEqual(self.c.get(path).status_code, 200)
+
+    def test_dry_run_offered_in_ui(self):
+        """无密钥也能试跑，对刚上手的人很重要。"""
+        from flask import render_template
+        row = {"no": "N2", "contract": "story_file", "skill": "writer",
+               "level": "episode", "level_cn": "集级", "cn_name": "故事档案",
+               "artifact": None, "status": None, "status_cn": "未开始",
+               "provider": "anthropic", "provider_label": "Anthropic",
+               "has_key": True, "job": None, "waiting": False}
+        with self.c.application.test_request_context():
+            card = render_template("fragments/node.html", r=row, ep=1,
+                                   directors=[],
+                                   s={"id": "s", "name": "t", "genre_tags": [],
+                                      "director_id": None})
+        self.assertIn('name="dry_run"', card)
+
+    def test_job_kinds_do_not_mix(self):
+        """慢任务不止流水线节点了，失败汇总不能把别的种类算进去。"""
+        from web import jobs
+        jobs.clear()
+        jobs.fail(jobs.key_of("suggest", "writer"), "建议生成失败")
+        self.assertEqual(jobs.failures({}), [],
+                         "非节点任务混进了流水线失败列表")
+        jobs.clear()
+
+
 class TestReviewBlocks(unittest.TestCase):
     """
     审核门的分块编辑。

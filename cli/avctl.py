@@ -47,8 +47,8 @@ from core.engine.runner import (                               # noqa: E402
     RunError, resolve_director, run_node,
 )
 from core.engine.flywheel import (                            # noqa: E402
-    load_feedback, analyze, build_suggest_prompt, SUGGEST_SYSTEM,
-    save_proposal, list_proposals, apply_suggestion, ApplyError,
+    load_feedback, analyze, generate_proposal, SuggestError,
+    list_proposals, apply_suggestion, ApplyError,
     ref_governance, record_performance, MIN_SAMPLES,
 )
 
@@ -242,24 +242,14 @@ def cmd_flywheel(args):
 
     if args.action == "suggest":
         pkg = SkillPackage.load(SKILLS / args.skill)
-        recs = load_feedback(pkg.root)
-        st = analyze(recs)
-        if st["count"] < MIN_SAMPLES and not args.force:
-            print(f"{BAD} 反馈仅 {st['count']} 条，少于 {MIN_SAMPLES} 条门槛。")
-            print("  样本太少会把偶然当规律，生成的建议不可信。")
-            print("  确要生成用 --force。")
-            sys.exit(1)
-        gw = ModelGateway(log_path=CALL_LOG, dry_run=args.dry_run)
-        user = build_suggest_prompt(pkg.skill_md, recs, st)
         try:
-            res = gw.call(system=SUGGEST_SYSTEM, user=user,
-                          model_config=pkg.model_config,
-                          skill_id=pkg.id, tag="proposal")
-            data = res.json_payload()
-        except GatewayError as e:
+            prop, data = generate_proposal(
+                pkg, log_path=CALL_LOG, dry_run=args.dry_run, force=args.force)
+        except SuggestError as e:
             print(f"{BAD} {e}")
+            if "门槛" in str(e):
+                print("  确要生成用 --force。")
             sys.exit(1)
-        prop = save_proposal(pkg.root, pkg.id, data, st["count"])
         print(f"{OK} 建议已生成: {prop.path}")
         print(f"   结论: {data.get('verdict')}")
         print(f"   {data.get('evidence_summary', '')[:120]}")

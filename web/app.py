@@ -28,10 +28,11 @@ from web.deps import store                                    # noqa: E402
 from web.nav import ZONES, zone_of                            # noqa: E402
 from web.views import (                                       # noqa: E402
     artifacts, assets, directors, fragments, series, settings, skills,
+    system,
 )
 
 BLUEPRINTS = (series.bp, artifacts.bp, skills.bp, directors.bp, settings.bp,
-              assets.bp, fragments.bp)
+              assets.bp, system.bp, fragments.bp)
 
 
 def create_app() -> Flask:

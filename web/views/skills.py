@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import json
+import threading
+import traceback
 
-from flask import (Blueprint, redirect, render_template, request, url_for)
+from flask import (Blueprint, current_app, make_response, redirect,
+                   render_template, request, url_for)
 
-from core.engine.flywheel import (ApplyError, MIN_SAMPLES, analyze,
-                                  apply_suggestion, list_proposals,
-                                  load_feedback, ref_governance)
+from core.engine.flywheel import (ApplyError, MIN_SAMPLES, SuggestError,
+                                  analyze, apply_suggestion, generate_proposal,
+                                  list_proposals, load_feedback,
+                                  ref_governance)
 from core.skillkit.director import discover_directors
 from core.skillkit.package import SkillPackage, discover
-from web.deps import SKILLS, load_skill, render_error, store
+from web import jobs
+from web.deps import CALL_LOG, SKILLS, load_skill, render_error, store
 
 bp = Blueprint("skills", __name__, url_prefix="/skills")
 
@@ -34,10 +39,11 @@ def detail(sid):
     p = load_skill(sid)
     recs = load_feedback(p.root)
     return render_template(
-        "skill_detail.html", p=p, errs=p.validate(),
+        "skill_detail.html", p=p, sid=sid, errs=p.validate(),
         versions=p.list_versions(),
         gov=ref_governance(store.ref_health(sid)),
         stats=analyze(recs), min_samples=MIN_SAMPLES,
+        job=jobs.get(jobs.key_of("suggest", sid)),
         proposals=[x for x in list_proposals(p.root, sid)
                    if x.status == "pending"],
         feedback=[r.path.name for r in reversed(recs)][:12])
@@ -90,6 +96,56 @@ def proposal_apply(sid):
     store.record_skill_version(sid, p.version, p.root / "SKILL.md",
                                f"合入建议 {prop.created_at}")
     return redirect(url_for("skills.detail", sid=sid))
+
+
+@bp.post("/<sid>/suggest")
+def suggest(sid):
+    """
+    让模型读反馈、给出 SKILL.md 的改进建议。
+
+    这一步原先只有命令行有 —— 界面能审批它自己生成不了的建议，闭环是断的。
+    模型调用要几十秒，所以扔后台线程 + 片段轮询，和流水线节点一个路子。
+    """
+    p = load_skill(sid)
+    key = jobs.key_of("suggest", sid)
+    if jobs.claim(key):
+        threading.Thread(
+            target=_suggest_job,
+            args=(current_app._get_current_object(), key, p.root),
+            daemon=True).start()
+    if request.headers.get("HX-Request"):
+        return render_suggest(sid)
+    return redirect(url_for("skills.detail", sid=sid))
+
+
+def _suggest_job(app, key, root):
+    try:
+        prop, data = generate_proposal(SkillPackage.load(root),
+                                       log_path=CALL_LOG)
+        jobs.finish(key, f"已生成 {len(data.get('suggestions', []))} 条建议，"
+                         f"结论：{data.get('verdict', '')}")
+    except SuggestError as e:
+        app.logger.info("建议生成被拒 %s: %s", key, e)
+        jobs.fail(key, str(e))
+    except Exception as e:                                    # noqa: BLE001
+        app.logger.error("建议生成失败 %s: %s", key, traceback.format_exc())
+        jobs.fail(key, f"内部错误：{e}")
+
+
+def render_suggest(sid: str):
+    p = load_skill(sid)
+    recs = load_feedback(p.root)
+    html = render_template(
+        "fragments/suggest.html", sid=sid, stats=analyze(recs),
+        min_samples=MIN_SAMPLES, job=jobs.get(jobs.key_of("suggest", sid)),
+        proposals=[x for x in list_proposals(p.root, sid)
+                   if x.status == "pending"])
+    resp = make_response(html)
+    job = jobs.get(jobs.key_of("suggest", sid))
+    if job and job["state"] in ("done", "error"):
+        # 跑完通知整页刷新，好让新生成的提案出现在审批区
+        resp.headers["HX-Trigger"] = "suggestSettled"
+    return resp
 
 
 @bp.post("/<sid>/save")

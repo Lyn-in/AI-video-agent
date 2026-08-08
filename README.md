@@ -114,15 +114,42 @@ projects/<账号>/<合集>/<剧集>/
 
 ---
 
+## 工作台（`avctl web`，或双击启动脚本）
+
+日常生产不需要命令行。界面分三区：
+
+| 区 | 有什么 |
+|---|---|
+| **制作** | 待办（谁在等你审）· 剧集 · 流水线 stepper · 审核门 |
+| **资产** | Skill 与质量飞轮 · 导演库与匹配器 · 契约浏览器 |
+| **系统** | 多厂商密钥 · 导出 · 自检 · 调用与成本 |
+
+流水线是一条动线：上面 stepper 给位置感，下面只显示当前这步的工作面
+（未开始→生成表单 / 生成中→自轮询进度 / 有产物→去审）。
+N4 角色板与 N5 场景板是剧集级、全集共用且并行，进度条上单独标出来 ——
+不标的话，在第 2 集里改角色板会把第 1 集的一起改了。
+
+审核门按契约字段分块编辑：一处写坏只标那一块，其余编辑不丢；
+校验错误按字段路径落到对应块上；所有 `{zh, en}` 提示词对并排列出来供扫读
+（契约只查结构，查不出中英混排残句）。
+
+生成表单有「试跑」勾选框 —— 不调模型、不花钱，用占位内容跑通流程看看长什么样。
+
 ## 命令速查
+
+CLI 仍然是完整的，适合自动化与 CI；界面能做的它都能做。
 
 ```bash
 avctl init                              初始化
-avctl smoke                             M0 验收自检
+avctl smoke                             全链路验收自检
 avctl contract list | show <name>       契约
 avctl skill new|list|check              skill 管理
 avctl artifact check <f> --context ...  按契约校验产物（含跨契约引用完整性）
 avctl run <skill> --series <id> [--episode N] [--input ...] [--dry-run]
+avctl flywheel status|analyze|suggest|review|apply <skill>
+avctl director list|new|match           导演库与匹配器
+avctl blindtest <skill> --directors A B  导演风格盲测（M3 验收仪式，仅命令行）
+avctl export [--format claude codex plain]
 ```
 
 ---

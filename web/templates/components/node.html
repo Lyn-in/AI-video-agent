@@ -80,6 +80,10 @@
           {% for d in directors %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
         </select>
       {% endif %}
+      <label class="inline mt-3">
+        <input type="checkbox" name="dry_run" value="1">
+        <span>试跑（不调模型、不花钱，用占位内容跑通流程看看长什么样）</span>
+      </label>
       <div class="actions">
         <button type="submit" {% if not r.status %}class="primary"{% endif %}>
           {{ '重新生成' if r.status else '生成这一步' }}</button>

@@ -28,7 +28,10 @@ ZONES = (
     },
     {
         "id": "system", "label": "系统", "home": "settings.index",
-        "items": (("密钥", "settings.index"),),
+        "items": (("密钥", "settings.index"),
+                  ("导出", "system.export_page"),
+                  ("自检", "system.check_page"),
+                  ("成本", "system.cost_page")),
     },
 )
 

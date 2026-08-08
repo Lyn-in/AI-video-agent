@@ -20,7 +20,13 @@ _LOCK = threading.Lock()
 
 
 def key_for(node, series_id: str, episode_no: int | None) -> tuple:
-    return (*scope_of(node, series_id, episode_no), node.contract)
+    """流水线节点的任务 key。第一段是 kind，用来和别的慢任务分开。"""
+    return ("node", *scope_of(node, series_id, episode_no), node.contract)
+
+
+def key_of(kind: str, *parts) -> tuple:
+    """通用慢任务的 key，比如 ('suggest', 'writer')。"""
+    return (kind, *parts)
 
 
 def get(key: tuple) -> dict | None:
@@ -65,9 +71,10 @@ def failures(series_names: dict[str, str]) -> list[dict]:
     out = []
     with _LOCK:
         items = [(k, dict(v)) for k, v in _JOBS.items()]
-    for (scope_type, scope_id, contract), job in items:
-        if job["state"] != "error":
+    for key, job in items:
+        if job["state"] != "error" or key[0] != "node":
             continue
+        _, scope_type, scope_id, contract = key
         sid, ep = parse_scope(scope_type, scope_id)
         node = node_for(contract)
         out.append({

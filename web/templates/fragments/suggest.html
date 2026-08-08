@@ -1,0 +1,28 @@
+{# 生成建议的工作区。跑起来之后自己轮询自己，跑完 hx-trigger 消失。 #}
+<div id="suggest-box"
+     hx-get="{{ url_for('fragments.suggest', sid=sid) }}"
+     hx-swap="outerHTML"
+     {% if job and job.state == 'running' %}hx-trigger="every 3s"{% endif %}>
+
+{% if job and job.state == 'running' %}
+  <div class="warn">正在读反馈、生成建议… 一次模型调用通常几十秒，可以先去忙别的。</div>
+{% elif job and job.state == 'error' %}
+  <div class="err"><strong>没能生成建议</strong><p class="tight">{{ job.msg }}</p></div>
+{% elif job and job.state == 'done' %}
+  <div class="warn">{{ job.msg }}　<a href="">刷新看建议</a></div>
+{% endif %}
+
+{% if not (job and job.state == 'running') %}
+<form method="post" action="{{ url_for('skills.suggest', sid=sid) }}"
+      hx-post="{{ url_for('skills.suggest', sid=sid) }}"
+      hx-target="#suggest-box" hx-swap="outerHTML">
+  <div class="actions">
+    <button type="submit" {% if stats.count < min_samples %}
+      title="样本少于 {{ min_samples }} 条，生成的建议不可信"{% endif %}>
+      让模型给改进建议</button>
+    <span class="note">已攒 {{ stats.count }} 条反馈{% if stats.count < min_samples %}
+      ，建议攒够 {{ min_samples }} 条再生成 —— 样本太少会把偶然当规律{% endif %}</span>
+  </div>
+</form>
+{% endif %}
+</div>

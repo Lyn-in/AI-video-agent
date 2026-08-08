@@ -222,6 +222,46 @@ def save_proposal(skill_root: Path, skill_id: str, data: dict,
                     data=data, path=p)
 
 
+class SuggestError(Exception):
+    """带人话原因的建议生成失败。界面负责怎么讲给人听。"""
+
+
+def generate_proposal(pkg, *, gateway=None, log_path: Path | None = None,
+                      dry_run: bool = False, force: bool = False):
+    """
+    读反馈 → 让模型给出 SKILL.md 的改进建议 → 存成待批提案。
+
+    只生成，不合入。skill 是这个平台唯一的资产，一次错误的自动合入会污染
+    之后所有产出，且很难回溯到「哪一版开始变坏」—— 所以合入必须人点头。
+
+    原先只有命令行能跑这一步，界面却能审批它自己生成不了的建议，
+    闭环是断的。
+    """
+    from core.gateway.client import GatewayError, ModelGateway
+
+    recs = load_feedback(pkg.root)
+    st = analyze(recs)
+    if not st["count"]:
+        raise SuggestError(
+            f"{pkg.id} 还没有人工修改反馈。反馈来自审核门里的「保存修改」——"
+            f"你改的每一处都会归集。")
+    if st["count"] < MIN_SAMPLES and not force:
+        raise SuggestError(
+            f"反馈仅 {st['count']} 条，少于 {MIN_SAMPLES} 条门槛。"
+            f"样本太少会把偶然当规律，生成的建议不可信。")
+
+    gw = gateway or ModelGateway(log_path=log_path, dry_run=dry_run)
+    try:
+        res = gw.call(system=SUGGEST_SYSTEM,
+                      user=build_suggest_prompt(pkg.skill_md, recs, st),
+                      model_config=pkg.model_config,
+                      skill_id=pkg.id, tag="proposal")
+        data = res.json_payload()
+    except GatewayError as e:
+        raise SuggestError(str(e)) from e
+    return save_proposal(pkg.root, pkg.id, data, st["count"]), data
+
+
 def list_proposals(skill_root: Path, skill_id: str) -> list[Proposal]:
     pdir = skill_root / "proposals"
     if not pdir.is_dir():

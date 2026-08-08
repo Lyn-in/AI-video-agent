@@ -1,0 +1,38 @@
+{% extends "base.html" %}{% set zone='system' %}{% set nav='system.cost_page' %}
+{% block title %}调用与成本{% endblock %}
+{% block body %}
+<div class="eyebrow">调用与成本</div>
+{% if not totals.calls %}
+<p class="note">还没有调用记录。真实调用模型之后，
+每次的 token 和耗时都会记到 <code>{{ log }}</code>。</p>
+{% else %}
+<div class="sheet">
+  <div class="sheet-head"><h2>累计 {{ totals.calls }} 次调用</h2></div>
+  <div class="meta">
+    <span>输入 {{ '{:,}'.format(totals['in']) }} tokens</span>
+    <span>输出 {{ '{:,}'.format(totals.out) }} tokens</span>
+    <span>累计耗时 {{ totals.sec|round|int }} 秒</span>
+  </div>
+</div>
+<p class="note">这里只做可见，没有预算上限——一个写错的循环可以在几分钟内
+烧掉大量费用。成本护栏还没做，跑批量之前自己心里有数。</p>
+
+<div class="eyebrow">按 skill</div>
+<table><tr><th>skill</th><th>次数</th><th>输入 tokens</th><th>输出 tokens</th></tr>
+{% for name, s in by_skill %}
+<tr><td class="mono">{{ name }}</td><td>{{ s.calls }}</td>
+    <td>{{ '{:,}'.format(s['in']) }}</td><td>{{ '{:,}'.format(s.out) }}</td></tr>
+{% endfor %}
+</table>
+
+<div class="eyebrow">最近 {{ rows|length }} 次</div>
+<table><tr><th>时间</th><th>skill</th><th>模型</th><th>in/out</th><th>耗时</th></tr>
+{% for r in rows %}
+<tr><td class="note mono">{{ r.ts }}</td><td class="mono">{{ r.skill }}</td>
+    <td class="note">{{ r.provider }}/{{ r.model }}</td>
+    <td class="mono">{{ r.in_tokens }}/{{ r.out_tokens }}</td>
+    <td class="note">{{ r.elapsed }}s{% if r.dry_run %} <span class="tag">dry-run</span>{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% endblock %}
