@@ -397,6 +397,16 @@ pre {
 }
 .masthead .logout button:hover { background: none; color: var(--stamp); }
 
+/* ---------- 厂商设置 ---------- */
+.provider-fields { display: flex; flex-direction: column; gap: var(--sp-4); }
+.field-group { display: flex; flex-direction: column; gap: var(--sp-1); }
+.field-group label { font-size: var(--fs-sm); color: var(--muted); }
+.field-hint { font-size: var(--fs-xs); color: var(--rule); }
+.field-group input:disabled {
+  background: transparent; border-color: var(--rule);
+  color: var(--muted); cursor: not-allowed;
+}
+
 /* ---------- 构建信息 ---------- */
 .build-info {
   text-align: center; padding: var(--sp-3);

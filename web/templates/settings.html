@@ -1,9 +1,10 @@
 {% extends "base.html" %}{% set zone='system' %}{% set nav='settings.index' %}
 {% block title %}密钥设置{% endblock %}
 {% block body %}
-<div class="eyebrow">密钥设置</div>
-<p class="note">在这里填各家大模型厂商的 API 密钥，填好就能在流水线里用对应厂商的模型生成内容。
-密钥只存在这台电脑的 <code>config/secrets.json</code> 里，不会被提交到代码仓库，也不会离开本机。</p>
+<div class="eyebrow">API 设置</div>
+<p class="note">在这里填各家大模型厂商的接口地址、模型和密钥。
+地址和模型留空则使用默认值，只有密钥必须填。
+配置只存在这台电脑的 <code>config/secrets.json</code> 里，不会被提交到代码仓库，也不会离开本机。</p>
 
 {% for r in rows %}
 <div class="sheet {{ 'done' if r.configured else '' }}">
@@ -13,7 +14,7 @@
   </div>
   <div class="meta">
     <span>{{ r.hint }}</span>
-    {% if r.source == 'env' %}<span>当前来自环境变量 {{ r.key_env }}（页面填写不会覆盖它）</span>{% endif %}
+    {% if r.source == 'env' %}<span>密钥来自环境变量 {{ r.key_env }}</span>{% endif %}
   </div>
 
   {% if r.configured %}
@@ -25,16 +26,52 @@
   {% if r.source != 'env' %}
   <form method="post" action="{{ url_for('settings.save', provider=r.id) }}" class="mt-4">
     {{ csrf_input() }}
-    <label>{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
-    <input type="password" name="key" placeholder="{{ r.masked or ('粘贴 ' + r.label + ' 的密钥') }}" autocomplete="off">
+    <div class="provider-fields">
+      <div class="field-group">
+        <label>接口地址</label>
+        <input type="text" name="base_url"
+               value="{{ r.base_url }}"
+               placeholder="{{ r.url }}">
+        <span class="field-hint">留空使用默认地址</span>
+      </div>
+      <div class="field-group">
+        <label>模型</label>
+        <input type="text" name="model"
+               value="{{ r.model }}"
+               placeholder="{{ r.default_model }}">
+        <span class="field-hint">留空使用默认模型</span>
+      </div>
+      <div class="field-group">
+        <label>{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
+        <input type="password" name="key"
+               placeholder="{{ r.masked or ('粘贴 ' + r.label + ' 的密钥') }}"
+               autocomplete="off">
+      </div>
+    </div>
     <div class="actions">
       <button type="submit" class="primary">保存</button>
       {% if r.configured %}
       <button type="submit" formaction="{{ url_for('settings.clear', provider=r.id) }}"
-              formnovalidate onclick="return confirm('清除这把密钥？')">清除</button>
+              formnovalidate onclick="return confirm('清除这把密钥？地址和模型设置会保留。')">清除密钥</button>
       {% endif %}
     </div>
   </form>
+  {% else %}
+  <div class="provider-fields mt-4">
+    <div class="field-group">
+      <label>接口地址</label>
+      <input type="text" disabled value="{{ r.base_url or r.url }}">
+    </div>
+    <div class="field-group">
+      <label>模型</label>
+      <input type="text" disabled value="{{ r.model or r.default_model }}">
+    </div>
+    <div class="field-group">
+      <label>API 密钥</label>
+      <input type="text" disabled value="{{ r.masked }}">
+      <span class="field-hint">密钥来自环境变量，页面上改不了</span>
+    </div>
+  </div>
   {% endif %}
 </div>
 {% endfor %}
