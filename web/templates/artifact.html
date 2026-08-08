@@ -1,19 +1,18 @@
 {% extends "base.html" %}{% set nav='index' %}
+{% import "components/ui.html" as ui %}
 {% block title %}{{ cn.cn_name }}{% endblock %}
 {% block body %}
 <div class="eyebrow">{{ cn.cn_name }} · 审核门</div>
 <div class="sheet {{ 'done' if art.status=='approved' }}">
   <div class="sheet-head"><h2>{{ cn.cn_name }}</h2>
     <span class="scope">{{ art.contract }} v{{ art.contract_version }}</span></div>
-  <div class="meta">
-    <span class="mono">{{ art.artifact_id }}</span>
-    <span>{{ art.produced_by.skill }} v{{ art.produced_by.skill_version }}</span>
-    <span>{{ art.produced_by.model }}</span>
-    {% if art.produced_by.director %}<span>导演 {{ art.produced_by.director }}</span>{% endif %}
-  </div>
-  {% if art.status=='approved' %}
-    <div class="stamp">已通过<small>{{ row.updated_at[:10] }}</small></div>
-  {% else %}<div class="stamp pending">{{ status_cn }}</div>{% endif %}
+  {{ ui.meta([
+       art.artifact_id,
+       art.produced_by.skill ~ ' v' ~ art.produced_by.skill_version,
+       art.produced_by.model,
+       ('导演 ' ~ art.produced_by.director) if art.produced_by.director else '',
+     ]) }}
+  {{ ui.stamp(art.status, status_cn, row.updated_at) }}
 </div>
 
 <div class="eyebrow">引用申报</div>

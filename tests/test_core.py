@@ -364,31 +364,74 @@ class TestPipelineScope(unittest.TestCase):
         self.assertEqual(rows, again, "迁移不幂等")
 
 
-class TestPipelineTemplate(unittest.TestCase):
+class TestNodeCardPolling(unittest.TestCase):
     """
-    Jinja 的子模板 block 是编译期注册的，包在 {% if %} 外面不生效。
-    这个坑踩过一次：流水线页变成无条件每 6 秒重载，把正在输入的 brief 冲掉。
+    节点卡的轮询契约。
+
+    自终止是硬要求：只有 running 状态的片段才带 hx-trigger，
+    任务结束后换回来的片段不带，轮询自然停下。漏了这条，
+    页面会对着一个早就结束的任务永远打服务器 ——
+    而且这类问题在功能上完全看不出来。
+
+    历史包袱：这里原先是整页 <meta http-equiv="refresh">，
+    而且因为 Jinja 的 block 是编译期注册的，包在 {% if busy %} 外面
+    根本不生效，变成无条件每 6 秒重载，把正在输入的 brief 一起冲掉。
     """
 
-    def _render(self, busy):
+    def _card(self, job, status=None):
         try:
             from web.app import create_app
         except ImportError:
             self.skipTest("Flask 未安装")
         app = create_app()
+        row = {"no": "N2", "contract": "story_file", "skill": "writer",
+               "level": "episode", "level_cn": "集级", "cn_name": "故事档案",
+               "artifact": None, "status": status, "status_cn": status or "未开始",
+               "provider": "anthropic", "provider_label": "Anthropic",
+               "has_key": True, "job": job, "waiting": False, "is_block": True}
         with app.test_request_context():      # url_for 需要请求上下文
             from flask import render_template
             return render_template(
+                "fragments/node.html", r=row, ep=1, directors=[],
+                s={"id": "s", "name": "t", "genre_tags": [],
+                   "director_id": None})
+
+    def test_idle_does_not_poll(self):
+        self.assertNotIn("hx-trigger", self._card(None))
+
+    def test_running_polls(self):
+        c = self._card({"state": "running", "msg": "正在生成…"})
+        self.assertIn('hx-trigger="every 3s"', c)
+        self.assertIn("生成中", c)
+
+    def test_polling_stops_when_finished(self):
+        for state, msg in (("done", "生成完成，待审"), ("error", "缺少上游")):
+            with self.subTest(state=state):
+                c = self._card({"state": state, "msg": msg})
+                self.assertNotIn("hx-trigger", c,
+                                 f"{state} 之后轮询没停，会一直打服务器")
+
+    def test_form_keeps_native_action(self):
+        """渐进增强：没加载 JS 时整页提交也要能用。"""
+        c = self._card(None)
+        self.assertIn('action="/series/s/run/story_file"', c)
+        self.assertIn('method="post"', c)
+
+    def test_page_has_no_meta_refresh(self):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        app = create_app()
+        with app.test_request_context():
+            from flask import render_template
+            page = render_template(
                 "pipeline.html",
-                s={"id": "s", "name": "t", "genre_tags": [], "director_id": None},
+                s={"id": "s", "name": "t", "genre_tags": [],
+                   "director_id": None},
                 eps=[], ep=1, rows=[], blocked=None, directors=[],
-                busy=busy, missing_providers=[])
-
-    def test_no_refresh_when_idle(self):
-        self.assertNotIn("http-equiv=\"refresh\"", self._render(False))
-
-    def test_refresh_when_busy(self):
-        self.assertIn("http-equiv=\"refresh\"", self._render(True))
+                missing_providers=[])
+        self.assertNotIn("http-equiv=\"refresh\"", page)
 
 
 class TestSkillExport(unittest.TestCase):

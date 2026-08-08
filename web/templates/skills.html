@@ -12,7 +12,7 @@
   <td>{{ x.genres|join('、') or '—' }}</td>
   <td class="mono">{{ x.refs }}</td>
   <td class="mono">{{ x.feedback }}</td>
-  <td>{% if x.errs %}<span style="color:var(--stamp)">{{ x.errs|length }} 处问题</span>
+  <td>{% if x.errs %}<span class="bad">{{ x.errs|length }} 处问题</span>
       {% else %}通过{% endif %}</td>
 </tr>
 {% endfor %}

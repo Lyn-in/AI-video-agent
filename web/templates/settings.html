@@ -23,7 +23,7 @@
   {% endif %}
 
   {% if r.source != 'env' %}
-  <form method="post" action="{{ url_for('settings.save', provider=r.id) }}" style="margin-top:14px">
+  <form method="post" action="{{ url_for('settings.save', provider=r.id) }}" class="mt-4">
     <label>{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
     <input type="password" name="key" placeholder="{{ r.masked or ('粘贴 ' + r.label + ' 的密钥') }}" autocomplete="off">
     <div class="actions">
@@ -38,7 +38,7 @@
 </div>
 {% endfor %}
 
-<div class="note" style="margin-top:24px">
+<div class="note mt-6">
   没有想用的厂商没列在这里？在 <code>core/gateway/client.py</code> 的 <code>PROVIDERS</code>
   里加一行就行——大多数国内厂商都兼容 OpenAI 的 chat/completions 协议。
 </div>

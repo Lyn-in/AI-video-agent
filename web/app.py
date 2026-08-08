@@ -26,10 +26,11 @@ if str(_ROOT) not in sys.path:
 
 from web.deps import store                                    # noqa: E402
 from web.views import (                                       # noqa: E402
-    artifacts, directors, series, settings, skills,
+    artifacts, directors, fragments, series, settings, skills,
 )
 
-BLUEPRINTS = (series.bp, artifacts.bp, skills.bp, directors.bp, settings.bp)
+BLUEPRINTS = (series.bp, artifacts.bp, skills.bp, directors.bp, settings.bp,
+              fragments.bp)
 
 
 def create_app() -> Flask:

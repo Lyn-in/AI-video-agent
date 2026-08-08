@@ -8,7 +8,7 @@
 <div class="sheet">
   <div class="sheet-head"><h2>{{ x.d.name }}</h2>
     <span class="scope mono">{{ x.d.id }}</span></div>
-  <p style="margin:6px 0">{{ x.d.one_line }}</p>
+  <p class="my-2">{{ x.d.one_line }}</p>
   <div class="tags">{% for t in x.d.genre_tags %}<span class="tag">{{ t }}</span>{% endfor %}</div>
   {% if x.errs %}<div class="err"><ul>
     {% for e in x.errs %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}

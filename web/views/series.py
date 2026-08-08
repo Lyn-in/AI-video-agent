@@ -40,9 +40,7 @@ def index():
     return render_template("index.html", series=rows)
 
 
-@bp.route("/series/<sid>")
-def pipeline(sid):
-    ep = request.args.get("ep", type=int)
+def load_series(sid: str) -> tuple[dict, list[dict]]:
     with store.conn() as c:
         s = c.execute("SELECT * FROM series WHERE id=?", (sid,)).fetchone()
         if not s:
@@ -52,9 +50,14 @@ def pipeline(sid):
         eps = [dict(r) for r in c.execute(
             "SELECT * FROM episodes WHERE series_id=? ORDER BY episode_no",
             (sid,)).fetchall()]
-    if ep is None and eps:
-        ep = eps[0]["episode_no"]
+    return s, eps
 
+
+def node_rows(sid: str, ep: int | None) -> list[dict]:
+    """
+    五个节点的当前状态。整页渲染和 HTMX 片段都走这里 ——
+    两边算出来的东西必须一模一样，否则轮询换回来的卡会和页面对不上。
+    """
     rows, blocked = [], None
     for n in NODES:
         art = store.latest_artifact(*scope_of(n, sid, ep), n.contract)
@@ -83,11 +86,20 @@ def pipeline(sid):
         r["waiting"] = seen_block
         if r.get("is_block"):
             seen_block = True
+    return rows
 
-    busy = any(r["job"] and r["job"]["state"] == "running" for r in rows)
+
+@bp.route("/series/<sid>")
+def pipeline(sid):
+    s, eps = load_series(sid)
+    ep = request.args.get("ep", type=int)
+    if ep is None and eps:
+        ep = eps[0]["episode_no"]
+    rows = node_rows(sid, ep)
+    blocked = next((r for r in rows if r.get("is_block")), None)
     return render_template(
         "pipeline.html", s=s, eps=eps, ep=ep, rows=rows, blocked=blocked,
-        directors=discover_directors(SKILLS), busy=busy,
+        directors=discover_directors(SKILLS),
         missing_providers=sorted({r["provider_label"] for r in rows
                                   if not r["has_key"]}))
 
@@ -119,22 +131,35 @@ def start_run(sid, contract):
     ep = request.form.get("ep", type=int) or 1
     key = jobs.key_for(node, sid, ep)
 
-    if not jobs.claim(key):
-        return redirect(url_for("series.pipeline", sid=sid, ep=ep))
+    if jobs.claim(key):
+        opts = {
+            "brief": request.form.get("brief", ""),
+            "genre": [x.strip() for x in
+                      (request.form.get("genre") or "").replace("，", ",")
+                      .split(",") if x.strip()],
+            "director": request.form.get("director") or None,
+            "ep": ep,
+        }
+        threading.Thread(
+            target=_run_job,
+            args=(current_app._get_current_object(), key, sid, node, opts),
+            daemon=True).start()
 
-    opts = {
-        "brief": request.form.get("brief", ""),
-        "genre": [x.strip() for x in
-                  (request.form.get("genre") or "").replace("，", ",")
-                  .split(",") if x.strip()],
-        "director": request.form.get("director") or None,
-        "ep": ep,
-    }
-    threading.Thread(target=_run_job,
-                     args=(current_app._get_current_object(), key, sid, node,
-                           opts),
-                     daemon=True).start()
+    # HTMX 就地换掉这张卡（它随即开始自轮询）；没有 HTMX 就退回整页跳转。
+    if request.headers.get("HX-Request"):
+        return render_node(sid, contract, ep)
     return redirect(url_for("series.pipeline", sid=sid, ep=ep))
+
+
+def render_node(sid: str, contract: str, ep: int | None):
+    """渲染单张节点卡。片段端点与 start_run 共用。"""
+    s, _ = load_series(sid)
+    row = next((r for r in node_rows(sid, ep) if r["contract"] == contract),
+               None)
+    if row is None:
+        abort(404)
+    return render_template("fragments/node.html", r=row, s=s, ep=ep,
+                           directors=discover_directors(SKILLS))
 
 
 def _run_job(app, key, sid, node, opts):

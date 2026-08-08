@@ -1,0 +1,81 @@
+{% import "components/ui.html" as ui %}
+
+{# 流水线节点卡。
+   同一个 macro 既用于整页渲染，也用于 HTMX 片段返回 —— 必须只有一份，
+   否则「页面上的卡」和「轮询换回来的卡」迟早长得不一样。
+
+   自终止轮询：只有 running 状态才挂 hx-trigger，
+   任务结束后换回来的片段不带它，轮询自然停下，不需要写一行 JS。 #}
+{% macro node_card(r, s, ep, directors) %}
+<div class="sheet {{ 'done' if r.status == 'approved'
+     else ('waiting' if r.waiting else ('blocked' if r.is_block else '')) }}"
+     id="node-{{ r.contract }}"
+     hx-get="{{ url_for('fragments.node', sid=s.id, contract=r.contract, ep=ep or 1) }}"
+     hx-swap="outerHTML"
+     {% if r.job and r.job.state == 'running' %}hx-trigger="every 3s"{% endif %}>
+
+  <div class="sheet-head">
+    <span class="node-no">{{ r.no }}</span>
+    <h2>{% if r.artifact %}<a href="{{ url_for('artifacts.artifact', aid=r.artifact.id) }}">{{ r.cn_name }}</a>
+        {% else %}{{ r.cn_name }}{% endif %}</h2>
+    <span class="scope">{{ r.level_cn }}</span>
+  </div>
+
+  {{ ui.meta([
+       r.skill,
+       '模型 ' ~ r.provider_label,
+       (r.artifact.skill_id ~ ' v' ~ r.artifact.skill_version) if r.artifact else '',
+       r.artifact.updated_at if r.artifact else '',
+       ('导演 ' ~ r.artifact.director_id) if r.artifact and r.artifact.director_id else '',
+     ]) }}
+
+  {% if r.status == 'approved' %}
+    {{ ui.stamp('approved', '已通过', r.artifact.updated_at) }}
+  {% elif r.job and r.job.state == 'running' %}
+    {{ ui.stamp('pending', '生成中') }}
+  {% elif r.waiting %}
+    {{ ui.stamp('none', r.status_cn if r.status else '未开始') }}
+  {% elif r.status %}
+    {{ ui.stamp('pending', r.status_cn) }}
+  {% else %}
+    {{ ui.stamp('none', '未开始') }}
+  {% endif %}
+
+  {% if r.job and r.job.state == 'error' %}
+  <div class="err mt-3"><strong>这一步没成功</strong>
+    <p class="tight">{{ r.job.msg }}</p></div>
+  {% endif %}
+
+  {% if not r.has_key %}
+    <div class="warn mt-3">缺 {{ r.provider_label }} 密钥，
+      去<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下。</div>
+  {% elif not (r.job and r.job.state == 'running') %}
+    {# 表单保留原生 action/method：没加载 JS 时整页提交照样能用，
+       HTMX 只是把它变成局部替换。 #}
+    <form method="post"
+          action="{{ url_for('series.start_run', sid=s.id, contract=r.contract) }}"
+          hx-post="{{ url_for('series.start_run', sid=s.id, contract=r.contract) }}"
+          hx-target="#node-{{ r.contract }}"
+          hx-swap="outerHTML">
+      <input type="hidden" name="ep" value="{{ ep or 1 }}">
+      {% if r.contract == 'story_file' %}
+        <label>想拍什么（一句话就行）</label>
+        <textarea name="brief" rows="3"
+          placeholder="比如：父子俩在同一所学校，一个念书一个做保洁，约好互不相认"></textarea>
+        <label>题材（留空则用剧集的）</label>
+        <input type="text" name="genre" value="{{ s.genre_tags|join('、') }}">
+      {% else %}
+        <label>导演（留空则用剧集已选的）</label>
+        <select name="director">
+          <option value="">{{ s.director_id or '不指定' }}</option>
+          {% for d in directors %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+        </select>
+      {% endif %}
+      <div class="actions">
+        <button type="submit" {% if not r.status %}class="primary"{% endif %}>
+          {{ '重新生成' if r.status else '生成这一步' }}</button>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endmacro %}
