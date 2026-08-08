@@ -79,7 +79,7 @@
     <span class="scope">基于 {{ prop.based_on }} 条反馈</span></div>
   <p style="margin:8px 0">{{ prop.data.evidence_summary }}</p>
 </div>
-<form method="post" action="{{ url_for('proposal_apply', sid=p.id) }}">
+<form method="post" action="{{ url_for('skills.proposal_apply', sid=p.id) }}">
   {% for s in prop.suggestions %}
   <div class="sheet">
     <label style="margin:0 0 8px">
@@ -102,7 +102,7 @@
 {% endif %}
 
 <div class="eyebrow">SKILL.md</div>
-<form method="post" action="{{ url_for('skill_save', sid=p.id) }}">
+<form method="post" action="{{ url_for('skills.save', sid=p.id) }}">
   <textarea name="body" rows="30">{{ p.skill_md }}</textarea>
   <label>改动说明</label>
   <input type="text" name="note" placeholder="这次改了什么、为什么">

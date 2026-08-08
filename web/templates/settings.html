@@ -23,13 +23,13 @@
   {% endif %}
 
   {% if r.source != 'env' %}
-  <form method="post" action="{{ url_for('settings_save', provider=r.id) }}" style="margin-top:14px">
+  <form method="post" action="{{ url_for('settings.save', provider=r.id) }}" style="margin-top:14px">
     <label>{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
     <input type="password" name="key" placeholder="{{ r.masked or ('粘贴 ' + r.label + ' 的密钥') }}" autocomplete="off">
     <div class="actions">
       <button type="submit" class="primary">保存</button>
       {% if r.configured %}
-      <button type="submit" formaction="{{ url_for('settings_clear', provider=r.id) }}"
+      <button type="submit" formaction="{{ url_for('settings.clear', provider=r.id) }}"
               formnovalidate onclick="return confirm('清除这把密钥？')">清除</button>
       {% endif %}
     </div>

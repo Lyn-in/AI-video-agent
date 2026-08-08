@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% set nav='index' %}
 {% block body %}
 <div class="eyebrow">新建剧集</div>
-<form method="post" action="{{ url_for('series_new') }}">
+<form method="post" action="{{ url_for('series.series_new') }}">
   <label>剧集名字</label>
   <input type="text" name="name" placeholder="比如：认领" required>
   <label>题材（可留空，多个用逗号隔开）</label>
@@ -19,7 +19,7 @@
 {% for s in series %}
 <div class="sheet">
   <div class="sheet-head">
-    <h2><a href="{{ url_for('pipeline', sid=s.id) }}">{{ s.name }}</a></h2>
+    <h2><a href="{{ url_for('series.pipeline', sid=s.id) }}">{{ s.name }}</a></h2>
     {% if s.director_id %}<span class="scope">导演 {{ s.director_id }}</span>{% endif %}
   </div>
   <div class="meta">

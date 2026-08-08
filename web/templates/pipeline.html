@@ -14,7 +14,7 @@
 {% if eps %}
 <div class="epbar">
   {% for e in eps %}
-  <a href="{{ url_for('pipeline', sid=s.id, ep=e.episode_no) }}"
+  <a href="{{ url_for('series.pipeline', sid=s.id, ep=e.episode_no) }}"
      class="{{ 'on' if e.episode_no == ep }}">第 {{ e.episode_no }} 集</a>
   {% endfor %}
 </div>
@@ -23,7 +23,7 @@
 {% if missing_providers %}
 <div class="err"><strong>还没有配置密钥：{{ missing_providers|join('、') }}。</strong>
 对应厂商的节点暂时不能生成。去
-<a href="{{ url_for('settings') }}">密钥设置</a>页填一下，不用碰命令行。</div>
+<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下，不用碰命令行。</div>
 {% endif %}
 
 {% if busy %}
@@ -43,7 +43,7 @@
    else ('waiting' if r.waiting else ('blocked' if r.is_block else '')) }}">
   <div class="sheet-head">
     <span class="node-no">{{ r.no }}</span>
-    <h2>{% if r.artifact %}<a href="{{ url_for('artifact', aid=r.artifact.id) }}">{{ r.cn_name }}</a>
+    <h2>{% if r.artifact %}<a href="{{ url_for('artifacts.artifact', aid=r.artifact.id) }}">{{ r.cn_name }}</a>
         {% else %}{{ r.cn_name }}{% endif %}</h2>
     <span class="scope">{{ r.level_cn }}</span>
   </div>
@@ -75,10 +75,10 @@
 
   {% if not r.has_key %}
   <div class="warn" style="margin-top:10px">缺 {{ r.provider_label }} 密钥，
-    去<a href="{{ url_for('settings') }}">密钥设置</a>页填一下。</div>
+    去<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下。</div>
   {% elif not (r.job and r.job.state == 'running') %}
   <form method="post"
-        action="{{ url_for('start_run', sid=s.id, contract=r.contract) }}">
+        action="{{ url_for('series.start_run', sid=s.id, contract=r.contract) }}">
     <input type="hidden" name="ep" value="{{ ep or 1 }}">
     {% if r.contract == 'story_file' %}
       <label>想拍什么（一句话就行）</label>

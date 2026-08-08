@@ -1,0 +1,59 @@
+"""
+生成任务注册表。
+
+key 必须含集号 —— 否则同一部剧两集同时生成会互相顶掉状态。
+口径直接复用 core.pipeline.scope_of，和产物索引保持一致。
+
+目前是内存态：进程重启就没了，重启后页面显示节点还是原状态，重新点一次即可。
+独立成模块是为了 P2 接 HTMX 轮询时能整体换成 SQLite 持久化，
+而不必再去动各个视图。
+"""
+
+from __future__ import annotations
+
+import threading
+
+from core.pipeline import scope_of
+
+_JOBS: dict[tuple, dict] = {}
+_LOCK = threading.Lock()
+
+
+def key_for(node, series_id: str, episode_no: int | None) -> tuple:
+    return (*scope_of(node, series_id, episode_no), node.contract)
+
+
+def get(key: tuple) -> dict | None:
+    with _LOCK:
+        j = _JOBS.get(key)
+        return dict(j) if j else None
+
+
+def is_running(key: tuple) -> bool:
+    j = get(key)
+    return bool(j and j["state"] == "running")
+
+
+def claim(key: tuple) -> bool:
+    """占位。已经在跑就返回 False，调用方据此拒绝重复提交。"""
+    with _LOCK:
+        if key in _JOBS and _JOBS[key]["state"] == "running":
+            return False
+        _JOBS[key] = {"state": "running", "msg": "正在生成…"}
+        return True
+
+
+def finish(key: tuple, msg: str = "生成完成，待审") -> None:
+    with _LOCK:
+        _JOBS[key] = {"state": "done", "msg": msg}
+
+
+def fail(key: tuple, msg: str) -> None:
+    with _LOCK:
+        _JOBS[key] = {"state": "error", "msg": msg}
+
+
+def clear() -> None:
+    """测试用。"""
+    with _LOCK:
+        _JOBS.clear()

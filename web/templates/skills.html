@@ -6,7 +6,7 @@
 <th>refs</th><th>反馈</th><th>规范</th></tr>
 {% for x in pkgs %}
 <tr>
-  <td class="mono"><a href="{{ url_for('skill_detail', sid=x.pkg.id) }}">{{ x.pkg.id }}</a></td>
+  <td class="mono"><a href="{{ url_for('skills.detail', sid=x.pkg.id) }}">{{ x.pkg.id }}</a></td>
   <td>{{ x.pkg.manifest.name }}</td>
   <td class="mono">{{ x.pkg.output_contract or '—' }}</td>
   <td>{{ x.genres|join('、') or '—' }}</td>
@@ -18,5 +18,5 @@
 {% endfor %}
 </table>
 <p class="note">导演走另一套规范（擅长题材 / 叙事偏好 / 镜头语言 / 对白风格 / 禁忌清单），
-见<a href="{{ url_for('directors') }}">导演库</a>。</p>
+见<a href="{{ url_for('directors.index') }}">导演库</a>。</p>
 {% endblock %}
