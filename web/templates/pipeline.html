@@ -78,7 +78,7 @@
     去<a href="{{ url_for('settings') }}">密钥设置</a>页填一下。</div>
   {% elif not (r.job and r.job.state == 'running') %}
   <form method="post"
-        action="{{ url_for('run_node', sid=s.id, contract=r.contract) }}">
+        action="{{ url_for('start_run', sid=s.id, contract=r.contract) }}">
     <input type="hidden" name="ep" value="{{ ep or 1 }}">
     {% if r.contract == 'story_file' %}
       <label>想拍什么（一句话就行）</label>

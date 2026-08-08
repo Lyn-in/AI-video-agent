@@ -31,14 +31,14 @@ from core.engine.flywheel import (                             # noqa: E402
     load_feedback, analyze, list_proposals, apply_suggestion, ApplyError,
     ref_governance, MIN_SAMPLES,
 )
-from core.skillkit.director import (                           # noqa: E402
-    Director, discover_directors, DIRECTOR_BLIND_SKILLS,
+from core.skillkit.director import discover_directors          # noqa: E402
+from core.engine.runner import (                               # noqa: E402
+    RunError, resolve_director, run_node,
 )
 from core.skillkit.package import SkillError, SkillPackage, discover  # noqa: E402
 from core.store.artifacts import ArtifactStore, to_markdown    # noqa: E402
-from core.gateway.client import GatewayError, ModelGateway, PROVIDERS  # noqa: E402
+from core.gateway.client import PROVIDERS                      # noqa: E402
 from core.gateway import keystore                              # noqa: E402
-from core.store.artifacts import input_hash, make_envelope     # noqa: E402
 from core.store.db import Store                                # noqa: E402
 
 DB = ROOT / "config" / "platform.db"
@@ -161,7 +161,7 @@ def create_app() -> Flask:
 
     # ---------- 生成节点（界面直接跑，不用命令行） ----------
     @app.post("/series/<sid>/run/<contract>")
-    def run_node(sid, contract):
+    def start_run(sid, contract):
         node = node_for(contract)
         if not node:
             abort(404)
@@ -190,81 +190,37 @@ def create_app() -> Flask:
             _do_run(sid, node, opts)
             with JOBS_LOCK:
                 JOBS[key] = {"state": "done", "msg": "生成完成，待审"}
-        except Exception as e:                                # noqa: BLE001
-            app.logger.error("生成失败 %s: %s", key, traceback.format_exc())
+        except RunError as e:
+            # 预期内的失败（缺上游、契约不过、没密钥）：消息本身就是给人看的，
+            # 不需要堆栈。
+            app.logger.info("生成被拒 %s: %s", key, e)
             with JOBS_LOCK:
                 JOBS[key] = {"state": "error", "msg": str(e)}
+        except Exception as e:                                # noqa: BLE001
+            # 意料之外的：留全量堆栈，否则线程里出的错会变成「没反应」。
+            app.logger.error("生成失败 %s: %s", key, traceback.format_exc())
+            with JOBS_LOCK:
+                JOBS[key] = {"state": "error", "msg": f"内部错误：{e}"}
 
     def _do_run(sid, node, opts):
-        from cli.avctl import _build_prompt
+        """编排在 core.engine.runner —— 命令行走的是同一条路径。"""
         pkg = SkillPackage.load(SKILLS / node.skill)
-        errs = pkg.validate()
-        if errs:
-            raise RuntimeError(f"{pkg.id} 不符合平台规范：{errs[0]}")
-
         with store.conn() as c:
-            srow = c.execute("SELECT * FROM series WHERE id=?", (sid,)).fetchone()
-        director_id = opts.get("director") or (srow["director_id"] if srow else None)
-
-        # 自动收集上游产物：不用你手工指定文件
-        ep_no = opts.get("ep")
-        inputs, ids = [], []
-        for need in pkg.input_contracts:
-            up = node_for(need)
-            if not up:
-                continue
-            row = store.latest_artifact(*scope_of(up, sid, ep_no), need)
-            if row:
-                a = astore.load(row["path"])
-                inputs.append(a)
-                ids.append(a["artifact_id"])
-        missing = pkg.check_inputs([a["contract"] for a in inputs])
-        if missing:
-            names = "、".join(contracts.get(m).cn_name for m in missing)
-            raise RuntimeError(f"缺少上游：{names}。请先生成并通过它们。")
-
-        tags = list(opts.get("genre") or [])
-        if not tags:
-            for a in inputs:
-                tags += a.get("payload", {}).get("genre_tags", [])
-
-        director = None
-        if director_id and pkg.id not in DIRECTOR_BLIND_SKILLS:
-            droot = SKILLS / "directors" / director_id
-            if droot.is_dir():
-                director = Director.load(droot)
-
-        system, user = _build_prompt(pkg, opts.get("brief", ""),
-                                     inputs, tags, director)
-        gw = ModelGateway(log_path=ROOT / "config" / "calls.jsonl")
-        res = gw.call(system=system, user=user,
-                      model_config=pkg.model_config,
-                      skill_id=pkg.id, tag=pkg.output_contract)
-        payload = res.json_payload()
-        cits = payload.pop("_references_cited", [])
-        art = make_envelope(pkg.output_contract, payload,
-                            skill_id=pkg.id, skill_version=pkg.version,
-                            model=f"{res.provider}/{res.model}",
-                            director=director.id if director else None,
-                            inputs=ids, in_hash=input_hash(inputs),
-                            citations=cits)
-        verrs = contracts.validate_artifact(
-            art, contracts.get(pkg.output_contract),
-            {a["contract"]: a["payload"] for a in inputs})
-        if verrs:
-            raise RuntimeError("产出不符合契约，未保存：" + "；".join(verrs[:3]))
-
-        ep = ep_no if node.level != "series" else None
-        acc = srow["collection_id"] if srow else "s1"
-        with store.conn() as c:
+            srow = c.execute("SELECT * FROM series WHERE id=?",
+                             (sid,)).fetchone()
+            acc = srow["collection_id"] if srow else "s1"
             crow = c.execute("SELECT account_id FROM collections WHERE id=?",
                              (acc,)).fetchone()
-        account = crow["account_id"] if crow else "default"
-        p = astore.save(art, account=account, collection=acc,
-                        series=sid, episode_no=ep)
-        scope_type, scope_id = scope_of(node, sid, ep_no)
-        store.register_artifact(art, astore.rel(p), scope_type, scope_id,
-                                art["lineage"]["input_hash"])
+        director_id = opts.get("director") or (srow["director_id"]
+                                               if srow else None)
+        run_node(
+            pkg=pkg, store=store, astore=astore,
+            series_id=sid, episode_no=opts.get("ep"),
+            account=crow["account_id"] if crow else "default", collection=acc,
+            brief=opts.get("brief", ""), genre_tags=opts.get("genre"),
+            director=resolve_director(SKILLS, director_id, pkg),
+            log_path=ROOT / "config" / "calls.jsonl",
+        )
 
     # ---------- 新建剧集 ----------
     @app.post("/series/new")
