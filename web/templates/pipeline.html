@@ -1,109 +1,52 @@
-{% extends "base.html" %}{% set nav='index' %}
+{% extends "base.html" %}{% set zone='make' %}{% set nav='series.index' %}
+{% import "components/ui.html" as ui %}
+{% import "components/node.html" as nc %}
+{% import "components/stepper.html" as st %}
 {% block title %}{{ s.name }} · 流水线{% endblock %}
-{% if busy %}{% block head %}<meta http-equiv="refresh" content="6">{% endblock %}{% endif %}
 {% block body %}
-<div class="eyebrow">流水线 · {{ s.name }}</div>
-<div class="meta" style="margin-bottom:4px">
-  <span>剧集 <code>{{ s.id }}</code></span>
-  {% if s.director_id %}<span>导演 {{ s.director_id }}</span>
-  {% else %}<span>未指定导演</span>{% endif %}
+
+{# 常驻上下文切换器：当前在做哪一部、哪一集。
+   进到剧集级的步骤时集号会变灰 —— 那一步是全集共用的，跟当前集无关。 #}
+<div class="context">
+  <div class="context-main">
+    <a href="{{ url_for('series.index') }}" class="back">剧集</a>
+    <h1>{{ s.name }}</h1>
+    {% if eps %}
+    <div class="epswitch {{ 'muted' if current.level == 'series' }}">
+      {% for e in eps %}
+      <a href="{{ url_for('series.pipeline', sid=s.id, ep=e.episode_no, step=current.contract) }}"
+         class="{{ 'on' if e.episode_no == ep }}">第 {{ e.episode_no }} 集</a>
+      {% endfor %}
+      {% if current.level == 'series' %}<span class="epnote">本步全集共用</span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {{ ui.meta([s.id, '导演 ' ~ s.director_id if s.director_id else '未指定导演']) }}
 </div>
-{% if eps %}
-<div class="epbar">
-  {% for e in eps %}
-  <a href="{{ url_for('pipeline', sid=s.id, ep=e.episode_no) }}"
-     class="{{ 'on' if e.episode_no == ep }}">第 {{ e.episode_no }} 集</a>
-  {% endfor %}
-</div>
+
+{{ st.stepper(rows, s, ep, current) }}
+
+{% if missing_providers %}
+<div class="err"><strong>还没有配置密钥：{{ missing_providers|join('、') }}。</strong>
+对应厂商的节点暂时不能生成。去
+<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下，不用碰命令行。</div>
 {% endif %}
 
-{% if not has_key %}
-<div class="err"><strong>还没有填 API 密钥，暂时不能生成。</strong>
-在项目目录下把 <code>config/secrets.env.example</code> 复制成
-<code>config/secrets.env</code>，填入密钥，然后重启工作台。</div>
-{% endif %}
-
-{% if busy %}
-<div class="warn">正在生成，本页每 6 秒自动刷新一次。
-一次生成通常要几十秒，可以先去忙别的。</div>
-{% endif %}
-
-{% if blocked %}
+{% if blocked and blocked.contract != current.contract %}
 <div class="warn">当前卡在 <strong>{{ blocked.no }} {{ blocked.cn_name }}</strong>
-（{{ blocked.status_cn }}）。上游未通过，下游不启动。</div>
-{% else %}
+（{{ blocked.status_cn }}）。上游未通过，下游不启动。
+<a href="{{ url_for('series.pipeline', sid=s.id, ep=ep, step=blocked.contract) }}">去处理</a></div>
+{% elif not blocked %}
 <div class="warn">五个节点全部通过，可以进入视频生成。</div>
 {% endif %}
 
-{% for r in rows %}
-<div class="sheet {{ 'done' if r.status=='approved'
-   else ('waiting' if r.waiting else ('blocked' if r.is_block else '')) }}">
-  <div class="sheet-head">
-    <span class="node-no">{{ r.no }}</span>
-    <h2>{% if r.artifact %}<a href="{{ url_for('artifact', aid=r.artifact.id) }}">{{ r.cn_name }}</a>
-        {% else %}{{ r.cn_name }}{% endif %}</h2>
-    <span class="scope">{{ '剧集级' if r.level=='series' else '集级' }}</span>
-  </div>
-  <div class="meta">
-    <span>{{ r.skill }}</span>
-    {% if r.artifact %}
-    <span>{{ r.artifact.skill_id }} v{{ r.artifact.skill_version }}</span>
-    <span>{{ r.artifact.updated_at }}</span>
-    {% if r.artifact.director_id %}<span>导演 {{ r.artifact.director_id }}</span>{% endif %}
-    {% endif %}
-  </div>
-  {% if r.status=='approved' %}
-    <div class="stamp">已通过<small>{{ r.artifact.updated_at[:10] }}</small></div>
-  {% elif r.job and r.job.state == 'running' %}
-    <div class="stamp pending">生成中</div>
-  {% elif r.waiting %}
-    <div class="stamp none">{{ r.status_cn if r.status else '未开始' }}</div>
-  {% elif r.status %}
-    <div class="stamp pending">{{ r.status_cn }}</div>
-  {% else %}
-    <div class="stamp none">未开始</div>
-  {% endif %}
-
-  {% if r.job and r.job.state == 'error' %}
-  <div class="err" style="margin-top:10px"><strong>这一步没成功</strong>
-    <p style="margin:6px 0 0">{{ r.job.msg }}</p></div>
-  {% endif %}
-
-  {% if has_key and not (r.job and r.job.state == 'running') %}
-  <form method="post"
-        action="{{ url_for('run_node', sid=s.id, contract=r.contract) }}">
-    <input type="hidden" name="ep" value="{{ ep or 1 }}">
-    {% if r.contract == 'story_file' %}
-      <label>想拍什么（一句话就行）</label>
-      <textarea name="brief" rows="3"
-        placeholder="比如：父子俩在同一所学校，一个念书一个做保洁，约好互不相认"></textarea>
-      <label>题材（留空则用剧集的）</label>
-      <input type="text" name="genre" value="{{ s.genre_tags|join('、') }}">
-    {% endif %}
-    {% if r.contract != 'story_file' %}
-      <label>导演（留空则用剧集已选的）</label>
-      <select name="director" style="font-family:var(--mono);padding:6px">
-        <option value="">{{ s.director_id or '不指定' }}</option>
-        {% for d in directors %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
-      </select>
-    {% endif %}
-    <div class="actions">
-      <button type="submit" {% if r.status %}{% else %}class="primary"{% endif %}>
-        {{ '重新生成' if r.status else '生成这一步' }}</button>
-    </div>
-  </form>
-  {% endif %}
-</div>
-{% endfor %}
-
-{% if directors %}
-<div class="eyebrow">可选导演</div>
-<table>
-<tr><th>ID</th><th>导演</th><th>风格</th></tr>
-{% for d in directors %}
-<tr><td class="mono">{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.one_line }}</td></tr>
-{% endfor %}
-</table>
-<p class="note">指定导演：<code>avctl run playwright --director &lt;ID&gt; ...</code></p>
+{# 工作面：这一步该干什么就显示什么。
+   未开始 → 生成表单；生成中 → 进度；已有产物 → 审核入口。
+   三态原先劈在两个页面上（生成表单在流水线、审核门在产物页），来回跳。 #}
+<div class="eyebrow">{{ current.no }} {{ current.cn_name }} · 工作面</div>
+{% if current.waiting %}
+<div class="warn">这一步还没轮到 —— 先把上游做通过。</div>
 {% endif %}
+{{ nc.node_card(current, s, ep, directors) }}
+
 {% endblock %}

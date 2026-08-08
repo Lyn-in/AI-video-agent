@@ -1,0 +1,42 @@
+{# 流水线进度条 —— 它就是导航本体。
+
+   原先是五张竖排卡片，点标题跳到另一个页面看审核门：概览和工作面
+   是两套断开的模型。改成 stepper 之后，上面一条给全局位置感，
+   下面一块给当前这步的工作面，一步 = 一个地方。
+
+   ③④ 是剧集级、全集共用、且并行（都只依赖剧本）。这个区别必须在
+   导航里看得见 —— 否则用户在第 2 集里改角色板，会把第 1 集的一起改了
+   还不知道。所以它们头顶套一条 band 标出来。 #}
+
+{% macro _mark(r) %}
+  {%- if r.job and r.job.state == 'running' %}⟳
+  {%- elif r.job and r.job.state == 'error' %}!
+  {%- elif r.status == 'approved' %}✓
+  {%- elif r.status %}●
+  {%- else %}○{% endif -%}
+{% endmacro %}
+
+{% macro stepper(rows, s, ep, current) %}
+{# 节点卡跑完会发 nodeSettled 事件（见 render_node 的 HX-Trigger），
+   进度条据此刷新自己 —— 否则卡片变了，上面的标记还停在「生成中」。 #}
+<ol class="stepper" id="stepper"
+    hx-get="{{ url_for('fragments.stepper', sid=s.id, ep=ep or 1, step=current.contract) }}"
+    hx-trigger="nodeSettled from:body"
+    hx-swap="outerHTML">
+  {% for r in rows %}
+  {% set state = 'done' if r.status == 'approved'
+       else ('failed' if r.job and r.job.state == 'error'
+       else ('active' if r.status or (r.job and r.job.state == 'running')
+       else 'todo')) %}
+  <li class="step {{ state }} {{ 'current' if r.contract == current.contract }}
+             {{ 'series-level' if r.level == 'series' }}">
+    <a href="{{ url_for('series.pipeline', sid=s.id, ep=ep, step=r.contract) }}">
+      <span class="step-mark">{{ _mark(r) }}</span>
+      <span class="step-no">{{ r.no }}</span>
+      <span class="step-name">{{ r.cn_name }}</span>
+    </a>
+  </li>
+  {% endfor %}
+  <li class="step-band" aria-hidden="true">剧集级 · 全集共用</li>
+</ol>
+{% endmacro %}

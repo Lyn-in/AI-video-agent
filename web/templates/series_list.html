@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% set zone='make' %}{% set nav='series.index' %}
+{% block title %}剧集{% endblock %}
+{% import "components/ui.html" as ui %}
+{% block body %}
+<div class="eyebrow">新建剧集</div>
+<form method="post" action="{{ url_for('series.series_new') }}">
+    {{ csrf_input() }}
+  <label>剧集名字</label>
+  <input type="text" name="name" placeholder="比如：认领" required>
+  <label>题材（可留空，多个用逗号隔开）</label>
+  <input type="text" name="genre" placeholder="比如：现实, 催泪">
+  <div class="actions"><button type="submit" class="primary">建好，开始做</button></div>
+</form>
+
+<div class="eyebrow">全部剧集</div>
+{% if not series %}
+  {{ ui.empty('还没有剧集', '在上面填个名字，点「建好，开始做」。') }}
+{% endif %}
+{% for s in series %}
+<div class="sheet">
+  <div class="sheet-head">
+    <h2><a href="{{ url_for('series.pipeline', sid=s.id) }}">{{ s.name }}</a></h2>
+    {% if s.director_id %}<span class="scope">导演 {{ s.director_id }}</span>{% endif %}
+  </div>
+  {{ ui.meta([
+       (s.account_name or '未归属账号') ~ ' / ' ~ (s.collection_name or '未归属合集'),
+       s.episodes|length ~ ' 集',
+       s.created_at,
+     ]) }}
+  {{ ui.tags(s.genre_tags) }}
+</div>
+{% endfor %}
+{% endblock %}

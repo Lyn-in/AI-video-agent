@@ -17,7 +17,15 @@ python3 cli/avctl.py init      # 初始化数据库与目录
 python3 cli/avctl.py smoke     # M0 验收自检，应全绿
 ```
 
-零外部依赖，Python 3.11+ 直接跑。真实调用模型时才需要密钥：
+零外部依赖，Python 3.11+ 直接跑。真实调用模型时才需要密钥——
+
+**推荐方式：网页填。** 启动工作台（`avctl web` 或双击启动脚本），
+在页面右上角「密钥设置」里为要用的厂商粘贴 API Key，保存即可，
+不用碰命令行。支持 Anthropic / DeepSeek / OpenAI / 月之暗面 / 智谱 /
+通义千问 / 豆包等多家厂商，见 `core/gateway/client.py` 的 `PROVIDERS`。
+密钥存在本机 `config/secrets.json`，不会进代码仓库。
+
+CI / 无头环境仍可以走环境变量（优先级更高，会覆盖网页填的值）：
 
 ```bash
 cp config/secrets.env.example config/secrets.env   # 填入 key
@@ -80,7 +88,8 @@ python3 cli/avctl.py skill check           # 校验全部
 
 ### 3. 模型网关（`core/gateway/`）
 
-- Anthropic / DeepSeek 统一抽象，urllib 实现，零依赖
+- 多厂商统一抽象（Anthropic / DeepSeek / OpenAI / 月之暗面 / 智谱 / 通义千问 / 豆包……），urllib 实现，零依赖
+- 密钥在网页「密钥设置」页管理（`core/gateway/keystore.py`），环境变量可覆盖，不强制走命令行
 - 每个 skill 独立绑定模型与 temperature（作家可高温发散，分镜必须低温求稳）
 - 重试、token 计费日志（`config/calls.jsonl`）、dry-run 占位模式
 - JSON 输出容错：模型加了围栏或前言也能正确解析
@@ -105,15 +114,42 @@ projects/<账号>/<合集>/<剧集>/
 
 ---
 
+## 工作台（`avctl web`，或双击启动脚本）
+
+日常生产不需要命令行。界面分三区：
+
+| 区 | 有什么 |
+|---|---|
+| **制作** | 待办（谁在等你审）· 剧集 · 流水线 stepper · 审核门 |
+| **资产** | Skill 与质量飞轮 · 导演库与匹配器 · 契约浏览器 |
+| **系统** | 多厂商密钥 · 导出 · 自检 · 调用与成本 |
+
+流水线是一条动线：上面 stepper 给位置感，下面只显示当前这步的工作面
+（未开始→生成表单 / 生成中→自轮询进度 / 有产物→去审）。
+N4 角色板与 N5 场景板是剧集级、全集共用且并行，进度条上单独标出来 ——
+不标的话，在第 2 集里改角色板会把第 1 集的一起改了。
+
+审核门按契约字段分块编辑：一处写坏只标那一块，其余编辑不丢；
+校验错误按字段路径落到对应块上；所有 `{zh, en}` 提示词对并排列出来供扫读
+（契约只查结构，查不出中英混排残句）。
+
+生成表单有「试跑」勾选框 —— 不调模型、不花钱，用占位内容跑通流程看看长什么样。
+
 ## 命令速查
+
+CLI 仍然是完整的，适合自动化与 CI；界面能做的它都能做。
 
 ```bash
 avctl init                              初始化
-avctl smoke                             M0 验收自检
+avctl smoke                             全链路验收自检
 avctl contract list | show <name>       契约
 avctl skill new|list|check              skill 管理
 avctl artifact check <f> --context ...  按契约校验产物（含跨契约引用完整性）
 avctl run <skill> --series <id> [--episode N] [--input ...] [--dry-run]
+avctl flywheel status|analyze|suggest|review|apply <skill>
+avctl director list|new|match           导演库与匹配器
+avctl blindtest <skill> --directors A B  导演风格盲测（M3 验收仪式，仅命令行）
+avctl export [--format claude codex plain]
 ```
 
 ---

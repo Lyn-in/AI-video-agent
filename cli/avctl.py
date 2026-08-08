@@ -36,16 +36,19 @@ from core.skillkit.director import (                           # noqa: E402
     Director, discover_directors, recommend, scaffold_director,
     DIRECTOR_BLIND_SKILLS,
 )
-from core.store.artifacts import (                             # noqa: E402
-    ArtifactStore, make_envelope, input_hash,
-)
+from core.store.artifacts import ArtifactStore, make_envelope  # noqa: E402
 from core.store.db import Store                                # noqa: E402
+from core.pipeline import NODES, node_for, scope_of            # noqa: E402
 from core.engine.gate import (                                 # noqa: E402
     make_diff, change_ratio, build_retry_brief, MAJOR_REVISION_THRESHOLD,
 )
+from core.engine.prompt import build_prompt                    # noqa: E402
+from core.engine.runner import (                               # noqa: E402
+    RunError, resolve_director, run_node,
+)
 from core.engine.flywheel import (                            # noqa: E402
-    load_feedback, analyze, build_suggest_prompt, SUGGEST_SYSTEM,
-    save_proposal, list_proposals, apply_suggestion, ApplyError,
+    load_feedback, analyze, generate_proposal, SuggestError,
+    list_proposals, apply_suggestion, ApplyError,
     ref_governance, record_performance, MIN_SAMPLES,
 )
 
@@ -175,15 +178,24 @@ def cmd_web(args):
         print("     pip install flask --break-system-packages")
         sys.exit(1)
 
-    if args.host != "127.0.0.1":
-        print(f"{WARN} 你把工作台绑到了 {args.host}。")
-        print("     工作台目前没有任何鉴权和 CSRF 防护 ——")
-        print("     任何能访问到它的人都能改 SKILL.md、盖章、合入建议。")
-        print("     只在可信内网这么做，绝不要暴露到公网。")
+    from web import security
+    if not security.is_local(args.host):
+        # 原先这里只打印一行警告然后照常暴露。警告拦不住事故 ——
+        # 绑到非 localhost 就是要给别人访问，那就必须先上锁。
+        if not security.has_password():
+            print(f"{BAD} 你把工作台绑到了 {args.host}，但还没设访问口令。")
+            print("     任何能访问到它的人都能改 SKILL.md、盖章通过、")
+            print("     合入 skill 建议、读走你所有产物。")
+            print()
+            print("     先在「系统 → 密钥」页设一个口令（本机启动即可设），")
+            print("     或者直接用默认的 127.0.0.1 自己用。")
+            sys.exit(1)
+        print(f"{WARN} 工作台绑在 {args.host}，已启用口令保护。")
+        print("     它仍然是明文 HTTP，只在可信内网这么做，别暴露到公网。")
         print()
     if args.debug:
-        print(f"{WARN} debug 模式开启。Werkzeug 调试器可在页面上执行代码，")
-        print("     配合无鉴权等于开后门。仅在本机排查问题时使用。")
+        print(f"{WARN} debug 模式开启。Werkzeug 调试器能在页面上执行任意代码，")
+        print("     等于开一个后门。仅在本机排查问题时使用。")
         print()
 
     print(f"{OK} 生产工作台: http://{args.host}:{args.port}")
@@ -239,24 +251,14 @@ def cmd_flywheel(args):
 
     if args.action == "suggest":
         pkg = SkillPackage.load(SKILLS / args.skill)
-        recs = load_feedback(pkg.root)
-        st = analyze(recs)
-        if st["count"] < MIN_SAMPLES and not args.force:
-            print(f"{BAD} 反馈仅 {st['count']} 条，少于 {MIN_SAMPLES} 条门槛。")
-            print("  样本太少会把偶然当规律，生成的建议不可信。")
-            print("  确要生成用 --force。")
-            sys.exit(1)
-        gw = ModelGateway(log_path=CALL_LOG, dry_run=args.dry_run)
-        user = build_suggest_prompt(pkg.skill_md, recs, st)
         try:
-            res = gw.call(system=SUGGEST_SYSTEM, user=user,
-                          model_config=pkg.model_config,
-                          skill_id=pkg.id, tag="proposal")
-            data = res.json_payload()
-        except GatewayError as e:
+            prop, data = generate_proposal(
+                pkg, log_path=CALL_LOG, dry_run=args.dry_run, force=args.force)
+        except SuggestError as e:
             print(f"{BAD} {e}")
+            if "门槛" in str(e):
+                print("  确要生成用 --force。")
             sys.exit(1)
-        prop = save_proposal(pkg.root, pkg.id, data, st["count"])
         print(f"{OK} 建议已生成: {prop.path}")
         print(f"   结论: {data.get('verdict')}")
         print(f"   {data.get('evidence_summary', '')[:120]}")
@@ -427,8 +429,8 @@ def cmd_blindtest(args):
     results = []
     for did in args.directors:
         d = Director.load(SKILLS / "directors" / did)
-        system, user = _build_prompt(pkg, args.brief, inputs, args.genre, d)
-        res = gw.call(system=system, user=user,
+        pr = build_prompt(pkg, args.brief, inputs, args.genre, d)
+        res = gw.call(system=pr.system, user=pr.user,
                       model_config=pkg.model_config,
                       skill_id=pkg.id, tag=pkg.output_contract)
         results.append((did, d.name, res.json_payload()))
@@ -510,205 +512,60 @@ def cmd_artifact(args):
 # ---------------- run ----------------
 
 def cmd_run(args):
+    """
+    编排逻辑在 core.engine.runner —— 工作台走的是同一条路径。
+    这里只负责把参数收好、把失败讲成人话。
+    """
     pkg = SkillPackage.load(SKILLS / args.skill)
-    errs = pkg.validate()
-    if errs and not args.force:
-        print(f"{BAD} skill 未通过规范校验，拒绝执行：")
-        for e in errs:
-            print(f"    - {e}")
-        print("  修好，或用 --force 强行执行（不推荐）")
-        sys.exit(1)
-
-    gw = ModelGateway(log_path=CALL_LOG, dry_run=args.dry_run)
     astore = ArtifactStore(PROJECTS)
     store = Store(DB)
 
-    # 装载上游产物
+    # 上游产物：命令行是显式给文件（工作台那边按契约自动收集）
     inputs, input_ids = [], []
     for f in args.input or []:
         a = astore.load(f)
         inputs.append(a)
         input_ids.append(a["artifact_id"])
 
-    # 必需上游检查：缺了就不许开工
-    provided = [a["contract"] for a in inputs]
-    missing = pkg.check_inputs(provided)
-    if missing:
-        from core.contracts import get as _gc
-        print(f"{BAD} 缺少必需的上游产物，拒绝执行：")
-        for mc in missing:
-            print(f"    - {mc}（{_gc(mc).cn_name}），由 {_gc(mc).producer} 产出")
-        print("  缺上游硬跑的产物表面能通过校验，实际是在裸奔 ——")
-        print("  例如分镜没有角色板会自己发明人物长相，而引用完整性校验")
-        print("  恰好因为缺上下文被跳过，最该生效的时候失效。")
-        sys.exit(1)
-
-    director = None
-    if args.director:
-        droot = SKILLS / "directors" / args.director
-        if not droot.is_dir():
-            print(f"{BAD} 找不到导演 {args.director}，可用: "
-                  f"{[d.id for d in discover_directors(SKILLS)]}")
-            sys.exit(1)
-        director = Director.load(droot)
-        derrs = director.validate()
-        if derrs and not args.force:
-            print(f"{BAD} 导演 {director.id} 未通过规范校验：")
-            for e in derrs:
-                print(f"    - {e}")
-            sys.exit(1)
-        if pkg.id in DIRECTOR_BLIND_SKILLS:
-            print(f"   {WARN} {pkg.id} 不接受导演上下文（故事在前，导演在后），"
-                  f"本次忽略 --director")
-        else:
-            print(f"   导演: {director.name}（{director.one_line}）")
-
-    system, user = _build_prompt(pkg, args.brief, inputs, args.genre, director)
-    contract_name = pkg.output_contract
-
-    tags = list(args.genre or [])
-    if not tags:
-        for a in inputs:
-            tags += a.get("payload", {}).get("genre_tags", [])
-    hit, miss = pkg.select_genres(tags)
-    if hit:
-        print(f"   题材模块: {', '.join(g.title for g in hit)}")
-    if miss:
-        print(f"   {WARN} 题材 {miss} 无模块支撑，本次按通用方法论作业")
-
     try:
-        res = gw.call(system=system, user=user,
-                      model_config=pkg.model_config,
-                      skill_id=pkg.id, tag=contract_name)
-        payload = res.json_payload()
-    except GatewayError as e:
+        director = resolve_director(SKILLS, args.director, pkg,
+                                    strict=not args.force)
+    except RunError as e:
         print(f"{BAD} {e}")
         sys.exit(1)
+    if args.director and director:
+        print(f"   导演: {director.name}（{director.one_line}）")
+    elif args.director and pkg.id in DIRECTOR_BLIND_SKILLS:
+        print(f"   {WARN} {pkg.id} 不接受导演上下文（故事在前，导演在后），"
+              f"本次忽略 --director")
 
-    art = make_envelope(
-        contract_name, payload,
-        skill_id=pkg.id, skill_version=pkg.version,
-        model=f"{res.provider}/{res.model}",
-        director=(args.director
-                  if director and pkg.id not in DIRECTOR_BLIND_SKILLS else None),
-        inputs=input_ids,
-        in_hash=input_hash(inputs),
-        citations=payload.pop("_references_cited", []),
-    )
-
-    errs = contracts.validate_artifact(
-        art, contracts.get(contract_name),
-        {a["contract"]: a["payload"] for a in inputs})
-    if errs:
-        print(contracts.ValidationError(errs).report())
-        print(f"\n{WARN} 产物未通过契约校验，未落盘。")
+    try:
+        r = run_node(
+            pkg=pkg, store=store, astore=astore,
+            series_id=args.series, episode_no=args.episode,
+            account=args.account, collection=args.collection,
+            brief=args.brief, genre_tags=args.genre, director=director,
+            inputs=inputs, input_ids=input_ids,
+            log_path=CALL_LOG, dry_run=args.dry_run, force=args.force,
+        )
+    except RunError as e:
+        print(f"{BAD} {e}")
+        if "未通过规范校验" in str(e):
+            print("  修好，或用 --force 强行执行（不推荐）")
         sys.exit(1)
 
-    # 自动补建项目结构 —— 否则命令行跑完，工作台首页看不到这个剧集。
-    # 这类断层不会报错，只会让人以为工作台坏了。
-    store.create_account(args.account, args.account)
-    store.create_collection(args.collection, args.account, args.collection)
-    with store.conn() as _c:
-        _exists = _c.execute("SELECT 1 FROM series WHERE id=?",
-                             (args.series,)).fetchone()
-    if not _exists:
-        store.create_series(args.series, args.collection, args.series,
-                            director_id=args.director,
-                            genre_tags=tags)
-    elif args.director:
-        with store.conn() as _c:
-            _c.execute("UPDATE series SET director_id=? WHERE id=?",
-                       (args.director, args.series))
-    if args.episode:
-        store.create_episode(f"{args.series}-ep{args.episode}",
-                             args.series, args.episode)
-
-    path = astore.save(art, account=args.account, collection=args.collection,
-                       series=args.series, episode_no=args.episode)
-    store.register_artifact(art, astore.rel(path), "episode" if args.episode
-                            else "series", args.series, art["lineage"]["input_hash"])
+    if r.genre_hit:
+        print(f"   题材模块: {', '.join(g.title for g in r.genre_hit)}")
+    if r.genre_miss:
+        print(f"   {WARN} 题材 {r.genre_miss} 无模块支撑，本次按通用方法论作业")
     print(f"{OK} 产物已生成并通过契约校验")
-    print(f"   {path}")
-    print(f"   审阅版: {path.with_suffix('.md')}")
-    if res.dry_run:
+    print(f"   {r.path}")
+    print(f"   审阅版: {r.path.with_suffix('.md')}")
+    if r.dry_run:
         print(f"   {WARN} dry-run 模式，内容为占位产物")
 
 
-def _build_prompt(pkg: SkillPackage, brief: str, inputs: list[dict],
-                  genre_tags: list[str] | None = None,
-                  director: "Director | None" = None):
-    """
-    四段式上下文拼装：频道圣经 + 导演约束 + skill本体(+题材模块) + references
-
-    导演约束放在最前面，因为它的优先级高于 skill 自身的方法论倾向。
-    """
-    from core.contracts import get as get_contract
-    c = get_contract(pkg.output_contract)
-
-    # 题材标签：显式传入 > 从上游产物里读
-    tags = list(genre_tags or [])
-    if not tags:
-        for a in inputs:
-            tags += a.get("payload", {}).get("genre_tags", [])
-
-    parts = []
-    if director and pkg.id not in DIRECTOR_BLIND_SKILLS:
-        parts.append(director.context_block())
-        parts.append("\n\n---\n\n")
-    parts.append(pkg.skill_md)
-
-    hit, miss = pkg.select_genres(tags)
-    if hit:
-        parts.append("\n\n---\n\n# 题材模块（优先级高于方法论层通用表述）\n")
-        for g in hit:
-            parts.append(f"\n<!-- 模块 {g.key} -->\n")
-            parts.append(g.read())
-    if miss:
-        parts.append(
-            f"\n\n注意：题材标签 {miss} 尚无对应模块，本次在无题材支撑下作业。"
-            f"请按通用方法论处理，并在产出中说明这一点。"
-        )
-
-    parts.append("\n\n---\n\n# 输出格式要求\n")
-    parts.append(f"你必须只输出一个 JSON 对象，符合契约 {c.name}（{c.cn_name}）。")
-    parts.append("不要输出任何解释、前言或 markdown 围栏。字段规格如下：\n")
-    parts.append(c.describe())
-    parts.append(
-        "\n此外，在 JSON 顶层加一个 `_references_cited` 数组，逐条申报本次调用了"
-        "哪些参考资料、用途（align_voice / borrow_structure / avoid）、"
-        "以及各自解决了什么问题。没有引用则给空数组。"
-    )
-
-    if pkg.refs:
-        parts.append("\n\n---\n\n# 参考资料\n")
-        for r in pkg.refs:
-            head = {"S": "S级范本", "A": "A级参考", "N": "反面教材（禁止模仿）"}[r.grade]
-            parts.append(f"\n## [{r.ref_id}] {r.title}（{head}，用途 {r.purpose}）\n")
-            parts.append(r.read())
-        parts.append(
-            "\n\n硬护栏：禁止复用参考资料中的具体台词、人名、地名、独有设定，"
-            "只能复用机制与模式。"
-        )
-
-    user_parts = []
-    for a in inputs:
-        cc = get_contract(a["contract"])
-        user_parts.append(f"# 上游产物：{cc.cn_name}\n")
-        user_parts.append(json.dumps(a["payload"], ensure_ascii=False, indent=2))
-    if brief:
-        user_parts.append(f"\n# 本次任务\n\n{brief}")
-    return "\n".join(parts), "\n".join(user_parts) or "请开始。"
-
-
 # ---------------- pipeline（流水线看板 CLI 版） ----------------
-
-NODE_SEQ = [
-    ("N1-N2", "story_file", "writer", "episode"),
-    ("N3", "screenplay", "playwright", "episode"),
-    ("N4", "character_board", "casting", "series"),
-    ("N5", "location_board", "set_dresser", "series"),
-    ("N6", "shotlist", "storyboard", "episode"),
-]
 
 STATUS_MARK = {
     "approved": OK,
@@ -724,21 +581,19 @@ def cmd_pipeline(args):
                                      if args.episode else ""))
     print("=" * 58)
     blocked = None
-    for label, contract, skill, level in NODE_SEQ:
-        c = contracts.get(contract)
-        row = store.latest_artifact(
-            "series" if level == "series" else "episode",
-            args.series, contract)
+    for n in NODES:
+        c = contracts.get(n.contract)
+        row = store.latest_artifact(*scope_of(n, args.series, args.episode),
+                                    n.contract)
         if not row:
             state, mark = "未开始", "-"
         else:
             state = row["status"]
             mark = STATUS_MARK.get(state, "?")
-        scope = "剧集级" if level == "series" else "集级"
-        print(f" {mark}  {label:6} {c.cn_name:5} {scope}"
-              f"  [{skill}]  {state}")
+        print(f" {mark}  {n.no:6} {c.cn_name:5} {n.level_cn}"
+              f"  [{n.skill}]  {state}")
         if blocked is None and (not row or row["status"] != "approved"):
-            blocked = (label, c.cn_name, state)
+            blocked = (n.no, c.cn_name, state)
     print("=" * 58)
     if blocked:
         print(f" 当前卡点: {blocked[0]} {blocked[1]}（{blocked[2]}）")
@@ -896,8 +751,11 @@ def cmd_smoke(args):
     store.create_collection("s1", "_smoke", "第一季")
     store.create_series("demo", "s1", "冒烟剧集")
     store.create_episode("demo-ep1", "demo", 1, "第一集")
-    store.register_artifact(art, astore.rel(p), "episode", "demo")
-    rows = store.list_artifacts("demo")
+    # 走 scope_of 取口径：集级产物的 scope_id 是「剧集-集号」，
+    # 直接写剧集 id 会让两集的产物在索引里互相覆盖。
+    store.register_artifact(art, astore.rel(p),
+                            *scope_of(node_for("story_file"), "demo", 1))
+    rows = store.list_artifacts("demo-ep1")
     print(f"  {OK} 产物索引写入成功，当前 {len(rows)} 条")
 
     import shutil
@@ -1055,8 +913,8 @@ def cmd_smoke(args):
     wr = _SP.load(SKILLS / "writer")
     d0 = ds[0] if ds else None
     if d0:
-        s_pw, _ = _build_prompt(pw, "", [], ["情感"], d0)
-        s_wr, _ = _build_prompt(wr, "", [], ["情感"], d0)
+        s_pw = build_prompt(pw, "", [], ["情感"], d0).system
+        s_wr = build_prompt(wr, "", [], ["情感"], d0).system
         if "导演风格约束" in s_pw and "导演风格约束" not in s_wr:
             print(f"  {OK} 导演注入：编剧吃约束，作家豁免"
                   f"（故事在前，导演在后）")
@@ -1099,11 +957,45 @@ def cmd_smoke(args):
             print(f"  {OK} 路由齐备（{len(routes)} 条）")
         else:
             fails.append(f"工作台缺少路由: {need - routes}")
-        for u in ["/", "/skills", "/directors"]:
+        for u in ["/", "/series", "/skills", "/directors", "/contracts"]:
             if c.get(u).status_code != 200:
                 fails.append(f"工作台 {u} 返回异常")
-        print(f"  {OK} 页面可访问：剧集总览 / Skill 管理 / 导演库")
-        print(f"  {OK} 审核门：读 → 判断 → 改（审阅版在编辑区之前）")
+        print(f"  {OK} 页面可访问：待办 / 剧集 / Skill / 导演 / 契约")
+
+        # 审核门：拿上面那份 _smoke 产物真打一次，别只打印一行漂亮话。
+        srow = store.latest_artifact("episode", "demo-ep1", "story_file")
+        if not srow:
+            fails.append("找不到 _smoke 产物，审核门未验证")
+        else:
+            body = c.get(f"/artifact/{srow['id']}").get_data(as_text=True)
+            order_ok = (body.find("引用申报") < body.find("产物内容")
+                        < body.find("直接编辑整份 JSON"))
+            if not order_ok:
+                fails.append("审核门顺序错乱：应当先读（引用申报）再改")
+            else:
+                print(f"  {OK} 审核门：读 → 判断 → 改（引用申报在编辑区之前）")
+            # CSRF：写操作必须带 token，页面里取一个真的来用
+            import re as _re
+            m = _re.search(r'name="_csrf" value="([^"]+)"', body)
+            if not m:
+                fails.append("页面里没有 CSRF token，写操作会全部失败")
+                tok = ""
+            else:
+                tok = m.group(1)
+                if c.post(f"/artifact/{srow['id']}/approve").status_code != 400:
+                    fails.append("无 token 的写操作没有被拒 —— CSRF 防护失效")
+                else:
+                    print(f"  {OK} CSRF：无凭据的写操作被拒（跨站表单提交拦得住）")
+
+            # 分块编辑：一处写坏不该把整次编辑作废
+            r = c.post(f"/artifact/{srow['id']}/save",
+                       data={"f_title": "改过的", "f_synopsis": "{坏的",
+                             "_csrf": tok})
+            b2 = r.get_data(as_text=True)
+            if r.status_code == 400 and "改过的" in b2 and "JSON 格式有误" in b2:
+                print(f"  {OK} 分块编辑：一处写坏只标那一块，其余编辑不丢")
+            else:
+                fails.append("审核门分块编辑未能保住其余字段的编辑内容")
     except ImportError:
         print(f"  {WARN} Flask 未安装，跳过工作台自检"
               f"（pip install flask --break-system-packages）")

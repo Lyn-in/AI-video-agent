@@ -17,6 +17,15 @@
   --sans: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
           "Microsoft YaHei", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  /* 间距刻度。原先每个 padding/margin 都是散落的字面量，
+     模板里因此长出十几处内联 style —— 有了刻度才收得回来。 */
+  --sp-1: 4px;   --sp-2: 6px;   --sp-3: 10px;  --sp-4: 14px;
+  --sp-5: 22px;  --sp-6: 32px;
+
+  /* 字号刻度 */
+  --fs-xs: 10.5px; --fs-sm: 11px;  --fs-base: 12.5px; --fs-md: 13px;
+  --fs-lg: 14px;   --fs-xl: 15px;  --fs-2xl: 17px;    --fs-3xl: 20px;
 }
 
 * { box-sizing: border-box; }
@@ -51,12 +60,136 @@ a:hover { border-bottom-color: var(--stamp); }
   font-family: var(--mono); font-size: 11px; color: var(--muted);
   letter-spacing: .08em; text-transform: uppercase;
 }
+.masthead h1 a { border: none; color: inherit; }
 .masthead nav { margin-left: auto; display: flex; gap: 20px; }
-.masthead nav a { border: none; font-size: 13px; color: var(--muted); }
+.masthead nav a { border: none; font-size: var(--fs-md); color: var(--muted); }
 .masthead nav a:hover, .masthead nav a.on { color: var(--ink); }
 .masthead nav a.on { border-bottom: 2px solid var(--stamp); padding-bottom: 2px; }
 
+/* 二级导航：按当前区渲染。一级分「制作 / 资产 / 系统」，
+   这三件事的性质不同，平铺在一层就看不出哪些是一类。 */
+.subnav {
+  display: flex; gap: var(--sp-5);
+  padding: var(--sp-3) 32px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-hi);
+}
+.subnav a {
+  border: none; font-family: var(--mono); font-size: var(--fs-sm);
+  letter-spacing: .08em; color: var(--muted);
+}
+.subnav a:hover { color: var(--ink); }
+.subnav a.on { color: var(--ink); border-bottom: 1px solid var(--stamp); }
+
 main { max-width: 1080px; margin: 0 auto; padding: 28px 32px 80px; }
+
+/* ---------- 剧集上下文条 ---------- */
+/* position:relative 是必须的 —— 印章是绝对定位的，
+   少了它会飞到页面右上角盖在导航上。 */
+.context { position: relative;
+           border-bottom: 1px solid var(--rule); padding-bottom: var(--sp-3);
+           margin-bottom: var(--sp-5); }
+.context-main { display: flex; align-items: baseline; gap: var(--sp-4);
+                flex-wrap: wrap; }
+.context h1 { font-family: var(--serif); font-size: var(--fs-3xl);
+              margin: 0; letter-spacing: .04em; }
+.context .back { font-family: var(--mono); font-size: var(--fs-sm);
+                 color: var(--muted); border: none; }
+.context .back::before { content: "← "; }
+.epswitch { display: flex; gap: var(--sp-2); align-items: baseline;
+            margin-left: auto; }
+.epswitch a {
+  font-family: var(--mono); font-size: var(--fs-base); padding: 2px 10px;
+  border: 1px solid var(--rule);
+}
+.epswitch a.on { border-color: var(--ink); background: var(--ink);
+                 color: var(--paper-hi); }
+/* 剧集级的步骤跟当前集无关，集号淡下去，避免让人以为在改这一集的东西 */
+.epswitch.muted a { opacity: .4; }
+.epswitch .epnote { font-family: var(--mono); font-size: var(--fs-xs);
+                    color: var(--stamp); }
+
+/* ---------- 流水线进度条 ---------- */
+.stepper {
+  list-style: none; margin: 0 0 var(--sp-5); padding: 0;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--sp-2);
+}
+.step { grid-row: 2; }
+.step a {
+  display: block; border: 1px solid var(--rule); border-top: 3px solid var(--rule);
+  background: var(--paper-hi); padding: var(--sp-3) var(--sp-2);
+  text-align: center;
+}
+.step a:hover { border-color: var(--muted); border-top-color: var(--muted); }
+.step-mark { display: block; font-size: var(--fs-2xl); line-height: 1.1;
+             color: var(--muted); }
+.step-no { display: block; font-family: var(--mono); font-size: var(--fs-xs);
+           color: var(--muted); letter-spacing: .1em; }
+.step-name { display: block; font-family: var(--serif); font-size: var(--fs-md);
+             margin-top: 2px; }
+
+.step.done a       { border-top-color: var(--stamp); }
+.step.done .step-mark { color: var(--stamp); }
+.step.active a     { border-top-color: var(--pending); }
+.step.active .step-mark { color: var(--pending); }
+.step.failed a     { border-top-color: var(--stamp); }
+.step.failed .step-mark { color: var(--stamp); font-weight: 700; }
+.step.current a    { border-color: var(--ink); background: var(--paper);
+                     box-shadow: inset 0 0 0 1px var(--ink); }
+
+/* ③④ 是剧集级、全集共用、且并行。不标出来的话，
+   用户在第 2 集里改角色板会把第 1 集的一起改了还不知道。
+   band 正好横跨这两列 —— 位置本身就在说「这两个是一组」。 */
+.step-band {
+  grid-column: 3 / span 2; grid-row: 1;
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--stamp);
+  text-align: center; letter-spacing: .06em;
+  border: 1px solid var(--stamp); border-bottom: none;
+  padding: 2px 0 3px;
+}
+
+.order { font-family: var(--mono); font-size: var(--fs-md);
+         line-height: 2; padding-left: 22px; }
+
+/* ---------- 审核门 ---------- */
+/* 动作放在页首：读完就在这儿处理，不用滚到底再滚回来 */
+.gate-actions {
+  display: flex; gap: var(--sp-4); align-items: flex-start;
+  flex-wrap: wrap; margin-bottom: var(--sp-5);
+}
+.gate-actions form { margin: 0; }
+.gate-actions .reject { flex: 1; min-width: 280px; }
+.gate-actions summary {
+  cursor: pointer; font-size: var(--fs-md); color: var(--muted);
+  padding: 7px 0;
+}
+.gate-actions summary:hover { color: var(--stamp); }
+button[disabled] { opacity: .5; cursor: default; }
+button[disabled]:hover { background: var(--stamp); color: #fff; }
+
+/* 分块编辑：错误标在具体那一块上，而不是甩一列字段路径 */
+.block { margin-bottom: var(--sp-5); }
+.block label { display: flex; align-items: baseline; gap: var(--sp-2);
+               text-transform: none; letter-spacing: 0;
+               font-size: var(--fs-md); color: var(--ink); }
+.block label .req { color: var(--stamp); }
+.block-desc { font-family: var(--sans); font-size: var(--fs-sm);
+              color: var(--muted); }
+.block.has-err input, .block.has-err textarea { border-color: var(--stamp); }
+.block-err {
+  margin: var(--sp-1) 0 0; font-family: var(--mono); font-size: var(--fs-sm);
+  color: var(--stamp);
+}
+
+/* 中英对照：等宽看英文，宽度对半，扫读时两边能对上行 */
+.pairs td { font-size: var(--fs-md); vertical-align: top; }
+.pairs td:first-child { width: 22%; }
+.pairs td[lang=en] { font-family: var(--mono); font-size: var(--fs-base); }
+
+details summary { cursor: pointer; }
+details[open] summary { margin-bottom: var(--sp-3); }
 
 /* ---------- 区块 ---------- */
 .eyebrow {
@@ -145,25 +278,45 @@ button, .btn {
   border: 1px solid var(--ink); border-radius: 0;
   padding: 7px 16px; cursor: pointer;
 }
+.btn { display: inline-block; }
 button:hover, .btn:hover { background: var(--ink); color: var(--paper-hi); }
-button.primary { background: var(--stamp); border-color: var(--stamp); color: #fff; }
-button.primary:hover { background: #8C2716; border-color: #8C2716; }
-button:focus-visible, a:focus-visible, textarea:focus-visible {
+button.primary, .btn.primary {
+  background: var(--stamp); border-color: var(--stamp); color: #fff;
+}
+button.primary:hover, .btn.primary:hover {
+  background: #8C2716; border-color: #8C2716; color: #fff;
+}
+button:focus-visible, a:focus-visible, textarea:focus-visible,
+input:focus-visible, select:focus-visible {
   outline: 2px solid var(--stamp); outline-offset: 2px;
 }
 
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 
 /* ---------- 表单 ---------- */
-textarea, input[type=text] {
-  width: 100%; font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+textarea, input[type=text], input[type=password] {
+  width: 100%; font-family: var(--mono); font-size: var(--fs-base);
+  line-height: 1.6;
   background: var(--paper-hi); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 0; padding: 12px;
 }
-textarea:focus, input:focus { border-color: var(--ink); }
-label { font-family: var(--mono); font-size: 11px; color: var(--muted);
+/* select 原先没有规则，pipeline.html 只好内联样式 */
+select {
+  font-family: var(--mono); font-size: var(--fs-base);
+  background: var(--paper-hi); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 0; padding: var(--sp-2);
+}
+textarea:focus, input:focus, select:focus { border-color: var(--ink); }
+label { font-family: var(--mono); font-size: var(--fs-sm); color: var(--muted);
         letter-spacing: .08em; text-transform: uppercase;
         display: block; margin: 16px 0 5px; }
+/* 勾选项是行内的一行字，不该套用上面那条大写等宽的块级 label */
+label.inline {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  font-family: var(--sans); font-size: var(--fs-md); color: var(--ink);
+  letter-spacing: 0; text-transform: none; margin: 0 0 var(--sp-2);
+}
+input[type=checkbox] { accent-color: var(--stamp); margin: 0; }
 
 /* ---------- 提示 ---------- */
 .note { color: var(--muted); font-size: 12.5px; }
@@ -205,6 +358,25 @@ pre {
 }
 .epbar a.on { border-color: var(--ink); background: var(--ink); color: var(--paper-hi); }
 
+/* ---------- 间距工具 ----------
+   只有这几个，用来替掉模板里散落的内联 style。
+   不做成完整的原子类体系 —— 这套 UI 的规模用不上。 */
+.mt-1 { margin-top: var(--sp-1); }
+.mt-3 { margin-top: var(--sp-3); }
+.mt-4 { margin-top: var(--sp-4); }
+.mt-6 { margin-top: var(--sp-6); }
+.mb-1 { margin-bottom: var(--sp-1); }
+.my-2 { margin: var(--sp-2) 0; }
+.tight { margin: var(--sp-2) 0 0; }
+.bad { color: var(--stamp); }
+
+/* ---------- HTMX ----------
+   请求进行中给个视觉反馈。htmx 会在触发元素上挂 .htmx-request。 */
+.htmx-request.stamp, .htmx-request .stamp { opacity: .45; }
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator { display: inline; }
+
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
 @media (max-width: 820px) {
   .cols { grid-template-columns: 1fr; }
@@ -212,3 +384,15 @@ pre {
   .masthead { padding: 14px 18px 10px; gap: 14px; }
   .stamp { position: static; display: inline-block; margin-top: 10px; }
 }
+
+/* ---------- 登录页 ---------- */
+.login {
+  max-width: 380px; margin: 14vh auto; padding: 0 var(--sp-5);
+}
+.login h2 { font-size: var(--fs-3xl); margin: 0 0 var(--sp-5); }
+.masthead .logout { display: inline; margin: 0; }
+.masthead .logout button {
+  border: none; background: none; padding: 0;
+  font-family: var(--sans); font-size: var(--fs-md); color: var(--muted);
+}
+.masthead .logout button:hover { background: none; color: var(--stamp); }

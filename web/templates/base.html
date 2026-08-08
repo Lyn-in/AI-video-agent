@@ -4,19 +4,41 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}生产工作台{% endblock %}</title>
+{# 内联 SVG 印章，省掉一次 favicon 404 #}
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2032%2032%27%3E%3Crect%20x%3D%274%27%20y%3D%278%27%20width%3D%2724%27%20height%3D%2716%27%20rx%3D%272%27%20fill%3D%27none%27%20stroke%3D%27%23A8321E%27%20stroke-width%3D%273%27%20transform%3D%27rotate%28-7%2016%2016%29%27%2F%3E%3C%2Fsvg%3E">
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+{# htmx 随仓库分发，不走 CDN：这个工具是双击启动在 localhost 跑的，
+   断网也得能用。defer 让它不挡首屏。 #}
+<script src="{{ url_for('static', filename='vendor/htmx.min.js') }}" defer></script>
 {% block head %}{% endblock %}
 </head>
-<body>
+{# HTMX 的请求走不到表单的 hidden 字段，统一挂在 body 上带 header。
+   两条路都通：原生表单用 hidden input，HTMX 用这个。 #}
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token() }}"}'>
 <header class="masthead">
-  <h1>生产工作台</h1>
+  <h1><a href="{{ url_for('series.inbox') }}">生产工作台</a></h1>
   <span class="sub">AI VIDEO AGENT · CALL SHEET</span>
-  <nav>
-    <a href="{{ url_for('index') }}" class="{{ 'on' if nav=='index' }}">剧集</a>
-    <a href="{{ url_for('skills') }}" class="{{ 'on' if nav=='skills' }}">Skill</a>
-    <a href="{{ url_for('directors') }}" class="{{ 'on' if nav=='directors' }}">导演</a>
+  <nav class="zones">
+    {% for z in zones %}
+    <a href="{{ url_for(z.home) }}" class="{{ 'on' if zone == z.id }}">{{ z.label }}</a>
+    {% endfor %}
+    {% if locked %}
+    <form method="post" action="{{ url_for('auth.logout') }}" class="logout">
+      {{ csrf_input() }}<button type="submit">退出</button>
+    </form>
+    {% endif %}
   </nav>
 </header>
+
+{% set z = zone_of(zone) %}
+{% if z and z['items']|length > 1 %}
+<nav class="subnav">
+  {% for label, endpoint in z['items'] %}
+  <a href="{{ url_for(endpoint) }}" class="{{ 'on' if nav == endpoint }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+
 <main>{% block body %}{% endblock %}</main>
 </body>
 </html>

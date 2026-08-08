@@ -1,21 +1,51 @@
-{% extends "base.html" %}{% set nav='index' %}
-{% block title %}{{ cn.cn_name }}{% endblock %}
+{% extends "base.html" %}{% set zone='make' %}{% set nav='series.inbox' %}
+{% import "components/ui.html" as ui %}
+{% block title %}{{ cn.cn_name }} · 审核门{% endblock %}
 {% block body %}
-<div class="eyebrow">{{ cn.cn_name }} · 审核门</div>
-<div class="sheet {{ 'done' if art.status=='approved' }}">
-  <div class="sheet-head"><h2>{{ cn.cn_name }}</h2>
-    <span class="scope">{{ art.contract }} v{{ art.contract_version }}</span></div>
-  <div class="meta">
-    <span class="mono">{{ art.artifact_id }}</span>
-    <span>{{ art.produced_by.skill }} v{{ art.produced_by.skill_version }}</span>
-    <span>{{ art.produced_by.model }}</span>
-    {% if art.produced_by.director %}<span>导演 {{ art.produced_by.director }}</span>{% endif %}
+
+{# 产物放回它在流水线里的位置 —— 从待办点进来也知道自己在哪一步 #}
+<div class="context">
+  <div class="context-main">
+    <a href="{{ url_for('series.pipeline', sid=ctx.series_id, ep=ctx.ep or 1,
+                        step=ctx.contract) }}" class="back">{{ ctx.series_name }}</a>
+    <h1>{{ ctx.no }} {{ cn.cn_name }}</h1>
+    {% if ctx.ep %}<span class="scope">第 {{ ctx.ep }} 集</span>
+    {% else %}<span class="scope">剧集级 · 全集共用</span>{% endif %}
   </div>
-  {% if art.status=='approved' %}
-    <div class="stamp">已通过<small>{{ row.updated_at[:10] }}</small></div>
-  {% else %}<div class="stamp pending">{{ status_cn }}</div>{% endif %}
+  {{ ui.meta([art.artifact_id,
+              art.produced_by.skill ~ ' v' ~ art.produced_by.skill_version,
+              art.produced_by.model,
+              ('导演 ' ~ art.produced_by.director) if art.produced_by.director else '',
+              '契约 ' ~ art.contract ~ ' v' ~ art.contract_version]) }}
+  {{ ui.stamp(art.status, status_cn, row.updated_at) }}
 </div>
 
+{% if extra_errors %}
+<div class="err"><strong>这些问题不属于某个单独字段</strong>
+<ul>{% for e in extra_errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+{# ---------- 动作放在最前面：读完就在这儿处理，不用滚到底 ---------- #}
+<div class="gate-actions">
+  <form method="post" action="{{ url_for('artifacts.approve', aid=aid) }}">
+    {{ csrf_input() }}
+    <button type="submit" class="primary"
+      {% if art.status == 'approved' %}disabled{% endif %}>
+      {{ '已盖章通过' if art.status == 'approved' else '盖章通过' }}</button>
+  </form>
+  <details class="reject">
+    <summary>打回重做</summary>
+    <form method="post" action="{{ url_for('artifacts.reject', aid=aid) }}">
+    {{ csrf_input() }}
+      <label>修改意见（必填）</label>
+      <textarea name="notes" rows="3" required
+        placeholder="写清楚哪里不对、该往哪个方向改。意见会拼进重生成的提示词。"></textarea>
+      <div class="actions"><button type="submit">确认打回</button></div>
+    </form>
+  </details>
+</div>
+
+{# ---------- 引用申报 ---------- #}
 <div class="eyebrow">引用申报</div>
 {% if citations %}
 <table><tr><th>reference</th><th>用途</th><th>解决了什么</th></tr>
@@ -29,29 +59,60 @@
 
 {% if lineage %}
 <div class="eyebrow">上游</div>
-<p class="note">{% for i in lineage %}<a href="{{ url_for('artifact', aid=i) }}"
+<p class="note">{% for i in lineage %}<a href="{{ url_for('artifacts.artifact', aid=i) }}"
   class="mono">{{ i }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
 {% endif %}
 
-<div class="eyebrow">审阅</div>
-<pre>{{ md }}</pre>
+{# ---------- 提示词中英对照：校验器管不了的那类错误靠这里看出来 ---------- #}
+{% if pairs %}
+<div class="eyebrow">提示词对照（{{ pairs|length }} 条）</div>
+<p class="note">这些是最终要喂给出图/出片模型的东西。契约只查结构，
+查不出中英混排的残句、漏译、两边说的不是一回事 —— 扫一眼。</p>
+<table class="pairs">
+<tr><th>字段</th><th>中文</th><th>English</th></tr>
+{% for p in pairs %}
+<tr><td class="mono note">{{ p.path }}</td>
+    <td>{{ p.zh }}</td><td lang="en">{{ p.en }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
 
-<div class="eyebrow">动作</div>
-<form method="post" action="{{ url_for('approve', aid=art.artifact_id) }}">
-  <div class="actions"><button type="submit" class="primary">盖章通过</button></div>
-</form>
-
-<form method="post" action="{{ url_for('reject', aid=art.artifact_id) }}">
-  <label>打回重做 · 修改意见</label>
-  <textarea name="notes" rows="4"
-    placeholder="写清楚哪里不对、该往哪个方向改。意见会拼进重生成的提示词。"></textarea>
-  <div class="actions"><button type="submit">打回重做</button></div>
-</form>
-
-<div class="eyebrow">直接修改</div>
-<form method="post" action="{{ url_for('save', aid=art.artifact_id) }}">
-  <label>产物正文（改完保存，会校验契约并把 diff 归集到 skill 的 feedback）</label>
-  <textarea name="payload" rows="26">{{ raw }}</textarea>
+{# ---------- 分块编辑：一处写坏只标那一块，其余原样留着 ---------- #}
+<div class="eyebrow">产物内容 · 可直接改</div>
+<p class="note">改完保存会重新过契约校验，不合规不落盘；
+改动会归集到 <code>{{ art.produced_by.skill }}</code> 的 feedback，喂给质量飞轮。</p>
+<form method="post" action="{{ url_for('artifacts.save', aid=aid) }}">
+    {{ csrf_input() }}
+  {% for b in blocks %}
+  <div class="block {{ 'has-err' if b.errors }}">
+    <label for="f_{{ b.name }}">
+      {{ b.name }}{% if b.required %} <span class="req">*</span>{% endif %}
+      <span class="block-desc">{{ b.label }}</span>
+    </label>
+    {% if b.kind == 'line' %}
+      <input type="text" id="f_{{ b.name }}" name="f_{{ b.name }}" value="{{ b.raw }}">
+    {% else %}
+      <textarea id="f_{{ b.name }}" name="f_{{ b.name }}"
+        rows="{{ b.rows }}">{{ b.raw }}</textarea>
+    {% endif %}
+    {% for e in b.errors %}<p class="block-err">{{ e }}</p>{% endfor %}
+  </div>
+  {% endfor %}
   <div class="actions"><button type="submit">保存修改</button></div>
 </form>
+
+<details class="mt-6">
+  <summary class="note">高级：直接编辑整份 JSON</summary>
+  <p class="note">分块编辑处理不了的极端情况用它。改坏了不会落盘。</p>
+  <form method="post" action="{{ url_for('artifacts.save_raw', aid=aid) }}">
+    {{ csrf_input() }}
+    <textarea name="payload" rows="24">{{ raw }}</textarea>
+    <div class="actions"><button type="submit">按整份 JSON 保存</button></div>
+  </form>
+</details>
+
+<details class="mt-4">
+  <summary class="note">审阅版 Markdown</summary>
+  <pre>{{ md }}</pre>
+</details>
 {% endblock %}

@@ -1,0 +1,40 @@
+{# 通用 UI 组件。抽出来是因为这些标记在 9 个模板里反复出现，
+   改一次样式要翻遍所有文件。 #}
+
+{# 状态印章 —— 这套 UI 的签名元素，审核门在真实剧组里就是盖章 #}
+{% macro stamp(status, status_cn, date=none) %}
+  {% if status == 'approved' %}
+    <div class="stamp">已通过{% if date %}<small>{{ date[:10] }}</small>{% endif %}</div>
+  {% elif status == 'none' %}
+    <div class="stamp none">{{ status_cn }}</div>
+  {% else %}
+    <div class="stamp pending">{{ status_cn }}</div>
+  {% endif %}
+{% endmacro %}
+
+{# 等宽小字的元信息行。items 是字符串列表，空项自动跳过。 #}
+{% macro meta(items) %}
+<div class="meta">
+  {% for it in items %}{% if it %}<span>{{ it }}</span>{% endif %}{% endfor %}
+</div>
+{% endmacro %}
+
+{% macro tags(list) %}
+{% if list %}<div class="tags mt-1">
+  {% for t in list %}<span class="tag">{{ t }}</span>{% endfor %}
+</div>{% endif %}
+{% endmacro %}
+
+{% macro empty(title, hint='') %}
+<div class="empty"><strong>{{ title }}</strong>{{ hint }}</div>
+{% endmacro %}
+
+{# 提示块。kind: warn | err
+   替代 errors.html 那个被 8 处复用、文案却写死成产物保存场景的整页错误页。 #}
+{% macro alert(kind, title='', body='') %}
+<div class="{{ kind }}">
+  {% if title %}<strong>{{ title }}</strong>{% endif %}
+  {% if body %}<p class="tight">{{ body }}</p>{% endif %}
+  {{ caller() if caller is defined }}
+</div>
+{% endmacro %}

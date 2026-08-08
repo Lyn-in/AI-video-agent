@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% set zone='make' %}{% set nav='series.inbox' %}
+{% block title %}请求被拒{% endblock %}
+{% block body %}
+<div class="eyebrow">请求被拒</div>
+<div class="err"><strong>这个操作缺少有效的来源凭据，已拒绝执行。</strong>
+<p class="tight">正常使用不会看到这一页。会出现通常是两种情况：</p>
+<ul>
+  <li>页面开了很久，会话已经过期 —— 回上一页刷新一下重试即可。</li>
+  <li>这个请求不是你在工作台里点出来的 —— 那就是它该被拦下的原因。</li>
+</ul>
+</div>
+<div class="actions"><a class="btn" href="{{ url_for('series.inbox') }}">回到待办</a></div>
+{% endblock %}

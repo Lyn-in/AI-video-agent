@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% set zone='system' %}{% set nav='system.export_page' %}
+{% block title %}导出{% endblock %}
+{% block body %}
+<div class="eyebrow">把 skill 拿出去单独用</div>
+<p class="note">平台真正的资产是那套 skill——方法论、判断标准、禁令、题材模块、导演约束。
+平台只是把它们编排起来的壳子，所以 skill 可以单独拿出去用。</p>
+
+<form method="post" action="{{ url_for('system.do_export') }}">
+    {{ csrf_input() }}
+  {% for key, (label, _fn, hint) in formats.items() %}
+  <label class="inline">
+    <input type="checkbox" name="fmt" value="{{ key }}" checked>
+    <span><strong>{{ label }}</strong> <span class="note">{{ hint }}</span></span>
+  </label>
+  {% endfor %}
+  <div class="actions"><button type="submit" class="primary">导出</button></div>
+</form>
+
+{% if made.values()|select|first %}
+<div class="eyebrow">已导出</div>
+<p class="note">落在 <code>{{ out }}</code></p>
+<table><tr><th>格式</th><th>内容</th></tr>
+{% for key, names in made.items() %}{% if names %}
+<tr><td>{{ formats[key][0] }}</td>
+    <td class="note mono">{{ names|join('、') }}</td></tr>
+{% endif %}{% endfor %}
+</table>
+{% endif %}
+
+<div class="warn mt-4"><strong>导出版没有执法。</strong>
+平台里编剧写了镜头会被契约校验器强制打回、角色板漏了人物会当场报错；
+导出版只有文字约定，模型多数时候会遵守，但没人兜底。
+也没有审核门、版本管理和质量飞轮。</div>
+{% endblock %}

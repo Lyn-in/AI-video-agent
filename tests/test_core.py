@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -285,6 +286,461 @@ class TestSecurityBoundaries(unittest.TestCase):
         app = create_app()
         self.assertIn("/artifact/<aid>/save",
                       {str(r.rule) for r in app.url_map.iter_rules()})
+
+
+class TestPipelineScope(unittest.TestCase):
+    """
+    集级产物的索引口径。这里出错不会报错，只会静默串集 ——
+    第 2 集的剧本盖掉第 1 集的，界面上还显示得好好的。
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_episode_scope_ids_differ(self):
+        from core.pipeline import node_for, scope_of
+        n = node_for("story_file")
+        self.assertNotEqual(scope_of(n, "s", 1), scope_of(n, "s", 2))
+
+    def test_series_level_ignores_episode(self):
+        """角色板是全集共用的，给了集号也不该按集分开存。"""
+        from core.pipeline import node_for, scope_of
+        n = node_for("character_board")
+        self.assertEqual(scope_of(n, "s", 1), ("series", "s"))
+        self.assertEqual(scope_of(n, "s", 2), ("series", "s"))
+
+    def test_level_derived_from_series_level(self):
+        from core.pipeline import NODES
+        from core.store.artifacts import SERIES_LEVEL
+        for n in NODES:
+            want = "series" if n.contract in SERIES_LEVEL else "episode"
+            self.assertEqual(n.level, want, f"{n.contract} 层级判定不一致")
+
+    def test_two_episodes_do_not_collide(self):
+        """同一剧集两集的同类产物必须各存各的。"""
+        from core.pipeline import node_for, scope_of
+        from core.store.db import Store
+        store = Store(self.tmp / "t.db")
+        store.init()
+        n = node_for("story_file")
+        for ep in (1, 2):
+            art = envelope("story_file", {})
+            art["artifact_id"] = f"sf-ep{ep}"
+            store.register_artifact(art, f"a/b/s/ep{ep:02d}/story_file.json",
+                                    *scope_of(n, "s", ep))
+        got = {ep: store.latest_artifact(*scope_of(n, "s", ep), "story_file")["id"]
+               for ep in (1, 2)}
+        self.assertNotEqual(got[1], got[2])
+
+    def test_migration_repairs_legacy_scope_ids(self):
+        """老库里集级产物的 scope_id 是剧集 id，init() 要能就地修好。"""
+        from core.store.db import Store
+        db = self.tmp / "legacy.db"
+        store = Store(db)
+        store.init()
+        with store.conn() as c:
+            c.execute("INSERT INTO artifacts(id,contract,scope_type,scope_id,"
+                      "path,status) VALUES(?,?,?,?,?,?)",
+                      ("old-1", "story_file", "episode", "s",
+                       "a/b/s/ep02/story_file.json", "approved"))
+            # 集级契约但落在 _series/：按口径应改判为剧集级
+            c.execute("INSERT INTO artifacts(id,contract,scope_type,scope_id,"
+                      "path,status) VALUES(?,?,?,?,?,?)",
+                      ("old-2", "screenplay", "episode", "s",
+                       "a/b/s/_series/screenplay.json", "approved"))
+            c.execute("DELETE FROM meta WHERE key='schema_version'")
+
+        store.migrate()
+        with store.conn() as c:
+            rows = {r["id"]: (r["scope_type"], r["scope_id"]) for r in
+                    c.execute("SELECT id,scope_type,scope_id FROM artifacts")}
+        self.assertEqual(rows["old-1"], ("episode", "s-ep2"))
+        self.assertEqual(rows["old-2"], ("series", "s"))
+
+        store.migrate()          # 重复执行不得再动数据
+        with store.conn() as c:
+            again = {r["id"]: (r["scope_type"], r["scope_id"]) for r in
+                     c.execute("SELECT id,scope_type,scope_id FROM artifacts")}
+        self.assertEqual(rows, again, "迁移不幂等")
+
+
+class TestNodeCardPolling(unittest.TestCase):
+    """
+    节点卡的轮询契约。
+
+    自终止是硬要求：只有 running 状态的片段才带 hx-trigger，
+    任务结束后换回来的片段不带，轮询自然停下。漏了这条，
+    页面会对着一个早就结束的任务永远打服务器 ——
+    而且这类问题在功能上完全看不出来。
+
+    历史包袱：这里原先是整页 <meta http-equiv="refresh">，
+    而且因为 Jinja 的 block 是编译期注册的，包在 {% if busy %} 外面
+    根本不生效，变成无条件每 6 秒重载，把正在输入的 brief 一起冲掉。
+    """
+
+    def _card(self, job, status=None):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        app = create_app()
+        row = {"no": "N2", "contract": "story_file", "skill": "writer",
+               "level": "episode", "level_cn": "集级", "cn_name": "故事档案",
+               "artifact": None, "status": status, "status_cn": status or "未开始",
+               "provider": "anthropic", "provider_label": "Anthropic",
+               "has_key": True, "job": job, "waiting": False, "is_block": True}
+        with app.test_request_context():      # url_for 需要请求上下文
+            from flask import render_template
+            return render_template(
+                "fragments/node.html", r=row, ep=1, directors=[],
+                s={"id": "s", "name": "t", "genre_tags": [],
+                   "director_id": None})
+
+    def test_idle_does_not_poll(self):
+        self.assertNotIn("hx-trigger", self._card(None))
+
+    def test_running_polls(self):
+        c = self._card({"state": "running", "msg": "正在生成…"})
+        self.assertIn('hx-trigger="every 3s"', c)
+        self.assertIn("生成中", c)
+
+    def test_polling_stops_when_finished(self):
+        for state, msg in (("done", "生成完成，待审"), ("error", "缺少上游")):
+            with self.subTest(state=state):
+                c = self._card({"state": state, "msg": msg})
+                self.assertNotIn("hx-trigger", c,
+                                 f"{state} 之后轮询没停，会一直打服务器")
+
+    def test_form_keeps_native_action(self):
+        """渐进增强：没加载 JS 时整页提交也要能用。"""
+        c = self._card(None)
+        self.assertIn('action="/series/s/run/story_file"', c)
+        self.assertIn('method="post"', c)
+
+    def test_page_has_no_meta_refresh(self):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        app = create_app()
+        row = {"no": "N2", "contract": "story_file", "skill": "writer",
+               "level": "episode", "level_cn": "集级", "cn_name": "故事档案",
+               "artifact": None, "status": None, "status_cn": "未开始",
+               "provider": "anthropic", "provider_label": "Anthropic",
+               "has_key": True, "job": None, "waiting": False}
+        with app.test_request_context():
+            from flask import render_template
+            page = render_template(
+                "pipeline.html",
+                s={"id": "s", "name": "t", "genre_tags": [],
+                   "director_id": None},
+                eps=[], ep=1, rows=[row], blocked=None, current=row,
+                directors=[], missing_providers=[])
+        self.assertNotIn("http-equiv=\"refresh\"", page)
+
+
+class TestSecurity(unittest.TestCase):
+    """
+    CSRF 是本机自用也必须做的：工作台在 127.0.0.1，但同源策略拦不住
+    跨站表单提交 —— 别的标签页里的网页能悄悄 POST 到你的 localhost，
+    盖章、合入 skill 建议、清掉密钥、或者触发一串烧钱的模型调用。
+
+    口令相反，只有对外暴露才需要，默认不开（本机自用加登录纯属添堵）。
+    """
+
+    def setUp(self):
+        try:
+            from web import security
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.security = security
+        # 测试期间不碰用户真实的 auth.json
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self._orig = security.AUTH_FILE
+        security.AUTH_FILE = self.tmp / "auth.json"
+        self.addCleanup(setattr, security, "AUTH_FILE", self._orig)
+        self.app = create_app()
+        self.c = self.app.test_client()
+
+    def _token(self, path="/series"):
+        body = self.c.get(path).get_data(as_text=True)
+        m = re.search(r'name="_csrf" value="([^"]+)"', body)
+        self.assertIsNotNone(m, f"{path} 页面里没有 CSRF token")
+        return m.group(1)
+
+    def test_post_without_token_rejected(self):
+        r = self.c.post("/series/new", data={"name": "跨站建的"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_post_with_token_works(self):
+        r = self.c.post("/series/new",
+                        data={"name": "认领", "_csrf": self._token()})
+        self.assertEqual(r.status_code, 302)
+
+    def test_htmx_header_path_works(self):
+        """HTMX 的请求到不了表单 hidden 字段，走 header。两条路都得通。"""
+        tok = self._token()
+        r = self.c.post("/system/export", data={"fmt": "plain"},
+                        headers={"X-CSRFToken": tok})
+        self.assertEqual(r.status_code, 302)
+
+    def test_token_present_inside_macro_rendered_form(self):
+        """
+        节点卡是 {% import %} 进来的宏，拿不到 context processor ——
+        csrf_input 曾经因此在卡片里静默失效，表单全都提交不了。
+        """
+        tok = self._token()
+        r = self.c.post("/series/new", data={"name": "认领", "_csrf": tok})
+        card = self.c.get(r.headers["Location"]).get_data(as_text=True)
+        self.assertIn('name="_csrf"', card, "节点卡表单里丢了 token")
+
+    def test_no_password_means_no_login(self):
+        self.assertFalse(self.security.has_password())
+        self.assertEqual(self.c.get("/").status_code, 200)
+
+    def test_password_gates_everything(self):
+        self.security.set_password("hunter22")
+        c2 = self.app.test_client()          # 新会话
+        r = c2.get("/")
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("/login", r.headers["Location"])
+
+        tok = re.search(r'name="_csrf" value="([^"]+)"',
+                        c2.get("/login").get_data(as_text=True)).group(1)
+        bad = c2.post("/login", data={"password": "wrong", "_csrf": tok})
+        self.assertIn("口令不对", bad.get_data(as_text=True))
+        ok = c2.post("/login", data={"password": "hunter22", "_csrf": tok})
+        self.assertEqual(ok.status_code, 302)
+        self.assertEqual(c2.get("/").status_code, 200)
+
+    def test_password_not_stored_in_plaintext(self):
+        self.security.set_password("hunter22")
+        raw = self.security.AUTH_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("hunter22", raw)
+        self.assertTrue(self.security.check_password("hunter22"))
+        self.assertFalse(self.security.check_password("hunter23"))
+
+    def test_is_local(self):
+        for h in ("127.0.0.1", "localhost", "::1"):
+            self.assertTrue(self.security.is_local(h))
+        for h in ("0.0.0.0", "192.168.1.5", ""):
+            self.assertFalse(self.security.is_local(h), h)
+
+
+class TestCliGapClosed(unittest.TestCase):
+    """
+    原先只有命令行有的能力，界面上得够得着。
+    最要紧的是飞轮：界面能审批建议，却生成不了建议 —— 闭环是断的。
+    """
+
+    def setUp(self):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.c = create_app().test_client()
+
+    def test_suggest_route_exists(self):
+        rules = {str(r.rule) for r in self.c.application.url_map.iter_rules()}
+        self.assertIn("/skills/<sid>/suggest", rules,
+                      "界面生成不了建议，只能审批 —— 闭环断了")
+
+    def test_director_matcher_ranks(self):
+        """recommend() 一直存在但界面够不着，只有 avctl director match 能跑。"""
+        body = self.c.get("/directors?genre=武侠").get_data(as_text=True)
+        self.assertIn("导演匹配器", body)
+        self.assertIn("命中题材", body)
+
+    def test_system_pages(self):
+        for path in ("/system/export", "/system/check", "/system/cost"):
+            with self.subTest(path=path):
+                self.assertEqual(self.c.get(path).status_code, 200)
+
+    def test_dry_run_offered_in_ui(self):
+        """无密钥也能试跑，对刚上手的人很重要。"""
+        from flask import render_template
+        row = {"no": "N2", "contract": "story_file", "skill": "writer",
+               "level": "episode", "level_cn": "集级", "cn_name": "故事档案",
+               "artifact": None, "status": None, "status_cn": "未开始",
+               "provider": "anthropic", "provider_label": "Anthropic",
+               "has_key": True, "job": None, "waiting": False}
+        with self.c.application.test_request_context():
+            card = render_template("fragments/node.html", r=row, ep=1,
+                                   directors=[],
+                                   s={"id": "s", "name": "t", "genre_tags": [],
+                                      "director_id": None})
+        self.assertIn('name="dry_run"', card)
+
+    def test_job_kinds_do_not_mix(self):
+        """慢任务不止流水线节点了，失败汇总不能把别的种类算进去。"""
+        from web import jobs
+        jobs.clear()
+        jobs.fail(jobs.key_of("suggest", "writer"), "建议生成失败")
+        self.assertEqual(jobs.failures({}), [],
+                         "非节点任务混进了流水线失败列表")
+        jobs.clear()
+
+
+class TestReviewBlocks(unittest.TestCase):
+    """
+    审核门的分块编辑。
+
+    这里守的是「一处写坏不该把整次编辑作废」——
+    原先整份 payload 挤在一个 textarea 里，打错个逗号就 400 跳错误页，
+    刚敲的东西全没了。
+    """
+
+    def setUp(self):
+        try:
+            from web import review
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.review = review
+        self.c = contracts.get("story_file")
+        self.payload = {
+            "title": "认领", "logline": "父子在同一所学校",
+            "genre_tags": ["现实"], "emotional_core": "亲情",
+            "target_duration_sec": 180, "hook": "开场",
+            "synopsis": {"act1": "a", "act2": "b", "act3": "c"},
+            "characters_brief": [{"id": "c1", "name": "父", "role": "主角",
+                                  "one_line": "保洁"}],
+        }
+
+    def _submit(self, **over):
+        blocks = self.review.build_blocks(self.c, self.payload)
+        sub = {b.name: b.raw for b in blocks}
+        sub.update(over)
+        blocks = self.review.build_blocks(self.c, self.payload, sub)
+        return blocks, self.review.parse_blocks(self.c, blocks, sub)
+
+    def test_scalar_and_json_blocks(self):
+        kinds = {b.name: b.kind for b in
+                 self.review.build_blocks(self.c, self.payload)}
+        self.assertEqual(kinds["title"], "line")
+        self.assertEqual(kinds["target_duration_sec"], "line")
+        self.assertEqual(kinds["synopsis"], "json")
+        self.assertEqual(kinds["characters_brief"], "json")
+
+    def test_bad_json_in_one_block_keeps_the_others(self):
+        blocks, (payload, bad) = self._submit(title="改过的标题",
+                                              synopsis="{坏的")
+        self.assertTrue(bad)
+        by = {b.name: b for b in blocks}
+        self.assertTrue(by["synopsis"].errors, "坏 JSON 没报错")
+        self.assertFalse(by["title"].errors, "好字段不该被连坐")
+        self.assertEqual(by["title"].raw, "改过的标题", "编辑内容被冲掉了")
+        self.assertEqual(payload["title"], "改过的标题")
+
+    def test_non_numeric_in_int_field(self):
+        blocks, (_, bad) = self._submit(target_duration_sec="一百八")
+        self.assertTrue(bad)
+        by = {b.name: b for b in blocks}
+        self.assertTrue(by["target_duration_sec"].errors)
+
+    def test_clean_submit_round_trips(self):
+        _, (payload, bad) = self._submit()
+        self.assertFalse(bad)
+        self.assertEqual(payload["target_duration_sec"], 180)
+        self.assertEqual(payload["synopsis"], self.payload["synopsis"])
+        self.assertEqual(payload["characters_brief"],
+                         self.payload["characters_brief"])
+
+    def test_extra_fields_survive(self):
+        """契约允许 extra 字段自由扩展，编辑一轮不能把它们弄丢。"""
+        p = dict(self.payload, _note="我自己加的", _data={"k": 1})
+        blocks = self.review.build_blocks(self.c, p)
+        names = {b.name for b in blocks}
+        self.assertIn("_note", names)
+        self.assertIn("_data", names)
+
+    def test_errors_land_on_their_block(self):
+        blocks = self.review.build_blocks(self.c, self.payload)
+        rest = self.review.attach_errors(blocks, [
+            "payload.logline: logline 过长（建议 80 字内）",
+            "payload.characters_brief[0].name: 缺失必填字段",
+            "references_cited: 必须申报",          # 信封层，归不到字段
+        ])
+        by = {b.name: b for b in blocks}
+        self.assertEqual(len(by["logline"].errors), 1)
+        self.assertEqual(len(by["characters_brief"].errors), 1)
+        self.assertEqual(rest, ["references_cited: 必须申报"])
+
+    def test_prompt_pairs_found_nested(self):
+        """中英对照是给人扫读的 —— 校验器只查结构，查不出混排残句。"""
+        pairs = self.review.prompt_pairs({
+            "characters": [{
+                "reference_prompts": {
+                    "front_bust": {"zh": "正面半身", "en": "front bust"},
+                    "profile": {"zh": "侧脸", "en": "profile"},
+                }}]})
+        self.assertEqual(len(pairs), 2)
+        paths = {p["path"] for p in pairs}
+        self.assertIn("characters[0].reference_prompts.front_bust", paths)
+
+    def test_prompt_pairs_ignores_non_pairs(self):
+        self.assertEqual(self.review.prompt_pairs({"zh": "只有中文"}), [])
+        self.assertEqual(self.review.prompt_pairs({"a": 1, "b": "x"}), [])
+
+
+class TestScopeRoundTrip(unittest.TestCase):
+    """scope_of 与 parse_scope 必须互为逆运算 —— 待办页靠它反查剧集和集号。"""
+
+    def test_round_trip(self):
+        from core.pipeline import NODES, parse_scope, scope_of
+        for n in NODES:
+            for ep in (None, 1, 2, 17):
+                with self.subTest(contract=n.contract, ep=ep):
+                    sid, got_ep = parse_scope(*scope_of(n, "my-series", ep))
+                    self.assertEqual(sid, "my-series")
+                    # 剧集级产物不带集号，集号回来是 None 是对的
+                    want = None if n.level == "series" else ep
+                    self.assertEqual(got_ep, want)
+
+    def test_series_id_with_dashes_survives(self):
+        """剧集 id 本身带连字符时不能被切错。"""
+        from core.pipeline import node_for, parse_scope, scope_of
+        n = node_for("story_file")
+        self.assertEqual(parse_scope(*scope_of(n, "s-54b93-x", 3)),
+                         ("s-54b93-x", 3))
+
+
+class TestNavigation(unittest.TestCase):
+    """
+    三区导航：制作是动线，资产是攒的东西，系统是配置。
+    每个模板都得声明自己属于哪一区，否则二级导航会空掉。
+    """
+
+    def setUp(self):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.c = create_app().test_client()
+
+    def test_every_zone_endpoint_resolves(self):
+        from web.nav import ZONES
+        for z in ZONES:
+            for label, endpoint in z["items"]:
+                with self.subTest(endpoint=endpoint):
+                    self.assertEqual(self.c.get(_url(self.c, endpoint)).status_code,
+                                     200, f"{label} 打不开")
+
+    def test_pages_declare_a_zone(self):
+        """页面漏了 zone，二级导航就不渲染 —— 用户会觉得导航时有时无。"""
+        for path, zone in (("/", "制作"), ("/series", "制作"),
+                           ("/skills", "资产"), ("/directors", "资产"),
+                           ("/contracts", "资产"), ("/settings", "系统")):
+            with self.subTest(path=path):
+                body = self.c.get(path).get_data(as_text=True)
+                self.assertIn(f'class="on">{zone}</a>', body,
+                              f"{path} 没标出所属区")
+
+
+def _url(client, endpoint):
+    return client.application.url_map.bind("localhost").build(endpoint)
 
 
 class TestSkillExport(unittest.TestCase):

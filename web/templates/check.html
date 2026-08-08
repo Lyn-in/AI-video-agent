@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% set zone='system' %}{% set nav='system.check_page' %}
+{% block title %}自检{% endblock %}
+{% block body %}
+<div class="eyebrow">平台自检</div>
+<p class="note">跑一遍全链路自检：契约执法、skill 规范、导演注入、
+审核门、质量飞轮，外加整套回归测试。改过东西之后跑一下，确认没弄坏别的。</p>
+<form method="post" action="{{ url_for('system.run_check') }}">
+    {{ csrf_input() }}
+  <div class="actions"><button type="submit" class="primary">开始自检</button>
+    <span class="note">要跑十几秒，页面会等着</span></div>
+</form>
+
+{% if output %}
+<div class="eyebrow">结果</div>
+{% if ok %}<div class="warn">自检通过。</div>
+{% else %}<div class="err"><strong>自检没过</strong>——下面有具体哪一项。</div>{% endif %}
+<pre>{{ output }}</pre>
+{% endif %}
+{% endblock %}

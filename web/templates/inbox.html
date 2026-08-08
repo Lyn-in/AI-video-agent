@@ -1,0 +1,70 @@
+{% extends "base.html" %}{% set zone='make' %}{% set nav='series.inbox' %}
+{% import "components/ui.html" as ui %}
+{% block title %}待办{% endblock %}
+{% block body %}
+
+{% if not has_series %}
+  {{ ui.empty('还没有剧集',
+     '去「剧集」页建一个，然后从 N2 故事档案开始。') }}
+  <div class="actions">
+    <a class="btn" href="{{ url_for('series.index') }}">去建第一部剧</a>
+  </div>
+{% else %}
+
+<div class="eyebrow">等你盖章（{{ waiting|length }}）</div>
+{% if waiting %}
+<table>
+<tr><th>剧集</th><th>节点</th><th>状态</th><th>更新时间</th></tr>
+{% for w in waiting %}
+<tr>
+  <td><a href="{{ url_for('series.pipeline', sid=w.series_id, ep=w.ep or 1) }}">{{ w.series_name }}</a>
+      {% if w.ep %}<span class="note">第 {{ w.ep }} 集</span>{% endif %}</td>
+  <td><a href="{{ url_for('artifacts.artifact', aid=w.aid) }}">{{ w.no }} {{ w.cn_name }}</a></td>
+  <td>{{ w.status_cn }}</td>
+  <td class="note">{{ w.updated_at }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p class="note">没有待审的产物。</p>
+{% endif %}
+
+{% if failed %}
+<div class="eyebrow">生成失败（{{ failed|length }}）</div>
+{% for f in failed %}
+<div class="sheet blocked">
+  <div class="sheet-head">
+    <span class="node-no">{{ f.no }}</span>
+    <h2>{{ f.series_name }} · {{ f.cn_name }}</h2>
+    {% if f.ep %}<span class="scope">第 {{ f.ep }} 集</span>{% endif %}
+  </div>
+  <p class="tight">{{ f.msg }}</p>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('series.pipeline', sid=f.series_id,
+                                    ep=f.ep or 1, step=f.contract) }}">去重试</a>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if redo %}
+<div class="eyebrow">已打回，等重生成（{{ redo|length }}）</div>
+<table>
+<tr><th>剧集</th><th>节点</th><th>打回时间</th></tr>
+{% for w in redo %}
+<tr>
+  <td><a href="{{ url_for('series.pipeline', sid=w.series_id, ep=w.ep or 1) }}">{{ w.series_name }}</a>
+      {% if w.ep %}<span class="note">第 {{ w.ep }} 集</span>{% endif %}</td>
+  <td><a href="{{ url_for('artifacts.artifact', aid=w.aid) }}">{{ w.no }} {{ w.cn_name }}</a></td>
+  <td class="note">{{ w.updated_at }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% if not waiting and not failed and not redo %}
+  {{ ui.empty('手上没有待办', '去「剧集」挑一部继续做。') }}
+{% endif %}
+
+{% endif %}
+{% endblock %}

@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% set nav='skills' %}
+{% extends "base.html" %}{% set zone='assets' %}{% set nav='skills.index' %}
 {% block title %}{{ p.id }}{% endblock %}
 {% block body %}
 <div class="eyebrow">Skill · {{ p.manifest.name }}</div>
@@ -56,16 +56,11 @@
     ×{{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</span></div>
   {% endif %}
   {% if stats.by_director and stats.by_director|length > 1 %}
-  <div class="warn" style="margin-top:10px">修改分布在多个导演下。
+  <div class="warn mt-3">修改分布在多个导演下。
   若集中于某一个导演，问题可能出在导演约束而非 skill 本体——改错地方会越改越糟。</div>
   {% endif %}
-  {% if stats.count < min_samples %}
-  <p class="note">攒够 {{ min_samples }} 条再生成建议。
-  样本太少会把偶然当规律。</p>
-  {% else %}
-  <p class="note">生成建议：<code>avctl flywheel suggest {{ p.id }}</code></p>
-  {% endif %}
 </div>
+{% include "fragments/suggest.html" %}
 {% else %}
 <p class="note">还没有反馈。你在审核门里改的每一处都会归集到这里，
 攒够 {{ min_samples }} 条就能生成 skill 改进建议。</p>
@@ -77,12 +72,13 @@
 <div class="sheet blocked">
   <div class="sheet-head"><h2>{{ prop.data.verdict }}</h2>
     <span class="scope">基于 {{ prop.based_on }} 条反馈</span></div>
-  <p style="margin:8px 0">{{ prop.data.evidence_summary }}</p>
+  <p class="my-2">{{ prop.data.evidence_summary }}</p>
 </div>
-<form method="post" action="{{ url_for('proposal_apply', sid=p.id) }}">
+<form method="post" action="{{ url_for('skills.proposal_apply', sid=p.id) }}">
+    {{ csrf_input() }}
   {% for s in prop.suggestions %}
   <div class="sheet">
-    <label style="margin:0 0 8px">
+    <label class="inline">
       <input type="checkbox" name="pick" value="{{ loop.index }}">
       第 {{ loop.index }} 条 · 章节「{{ s.section }}」 · {{ s.kind }}
       · 置信 {{ s.confidence }}
@@ -102,7 +98,8 @@
 {% endif %}
 
 <div class="eyebrow">SKILL.md</div>
-<form method="post" action="{{ url_for('skill_save', sid=p.id) }}">
+<form method="post" action="{{ url_for('skills.save', sid=p.id) }}">
+    {{ csrf_input() }}
   <textarea name="body" rows="30">{{ p.skill_md }}</textarea>
   <label>改动说明</label>
   <input type="text" name="note" placeholder="这次改了什么、为什么">
