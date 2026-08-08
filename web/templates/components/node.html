@@ -10,9 +10,11 @@
 <div class="sheet {{ 'done' if r.status == 'approved'
      else ('waiting' if r.waiting else ('blocked' if r.is_block else '')) }}"
      id="node-{{ r.contract }}"
+     {% if r.job and r.job.state == 'running' %}
      hx-get="{{ url_for('fragments.node', sid=s.id, contract=r.contract, ep=ep or 1) }}"
      hx-swap="outerHTML"
-     {% if r.job and r.job.state == 'running' %}hx-trigger="every 3s"{% endif %}>
+     hx-trigger="every 3s"
+     {% endif %}>
 
   <div class="sheet-head">
     <span class="node-no">{{ r.no }}</span>

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -44,8 +45,7 @@ OPEN_ENDPOINTS = {"auth.login", "static"}
 def create_app() -> Flask:
     app = Flask(__name__)
     app.secret_key = security.secret_key()
-    # 会话 cookie 的加固。SameSite=Lax 挡掉大部分跨站 POST，
-    # 但它只是纵深防御的一层 —— 真正拦住的是下面的 token 校验。
+    app.url_map.strict_slashes = False
     app.config.update(SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE="Lax")
     store.init()
@@ -76,7 +76,14 @@ def create_app() -> Flask:
         return Markup(f'<input type="hidden" name="{security.CSRF_FIELD}"'
                       f' value="{csrf_token()}">')
 
-    app.jinja_env.globals.update(csrf_input=csrf_input, csrf_token=csrf_token)
+    try:
+        _build = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(_ROOT), stderr=subprocess.DEVNULL, text=True).strip()
+    except Exception:                                            # noqa: BLE001
+        _build = "dev"
+    app.jinja_env.globals.update(csrf_input=csrf_input, csrf_token=csrf_token,
+                                 build_version=_build)
 
     @app.context_processor
     def inject_nav():
