@@ -1,6 +1,9 @@
 {% extends "base.html" %}{% set nav='index' %}
 {% block title %}{{ s.name }} · 流水线{% endblock %}
-{% if busy %}{% block head %}<meta http-equiv="refresh" content="6">{% endblock %}{% endif %}
+{# 条件必须写在 block 内部：Jinja 的子模板 block 是编译期注册的，
+   包在 {% if %} 外面不起作用，会变成无条件每 6 秒重载整页，
+   把用户正在输入的 brief 一起冲掉。 #}
+{% block head %}{% if busy %}<meta http-equiv="refresh" content="6">{% endif %}{% endblock %}
 {% block body %}
 <div class="eyebrow">流水线 · {{ s.name }}</div>
 <div class="meta" style="margin-bottom:4px">
@@ -42,7 +45,7 @@
     <span class="node-no">{{ r.no }}</span>
     <h2>{% if r.artifact %}<a href="{{ url_for('artifact', aid=r.artifact.id) }}">{{ r.cn_name }}</a>
         {% else %}{{ r.cn_name }}{% endif %}</h2>
-    <span class="scope">{{ '剧集级' if r.level=='series' else '集级' }}</span>
+    <span class="scope">{{ r.level_cn }}</span>
   </div>
   <div class="meta">
     <span>{{ r.skill }}</span>

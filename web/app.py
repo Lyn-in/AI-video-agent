@@ -14,6 +14,7 @@ import json
 import sys
 import threading
 import traceback
+from functools import lru_cache
 from pathlib import Path
 
 from flask import (Flask, abort, redirect, render_template, request, url_for)
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core import contracts                                    # noqa: E402
+from core.pipeline import NODES, node_for, scope_of           # noqa: E402
 from core.engine.gate import (                                # noqa: E402
     change_ratio, make_diff, MAJOR_REVISION_THRESHOLD,
 )
@@ -32,7 +34,7 @@ from core.engine.flywheel import (                             # noqa: E402
 from core.skillkit.director import (                           # noqa: E402
     Director, discover_directors, DIRECTOR_BLIND_SKILLS,
 )
-from core.skillkit.package import SkillPackage, discover       # noqa: E402
+from core.skillkit.package import SkillError, SkillPackage, discover  # noqa: E402
 from core.store.artifacts import ArtifactStore, to_markdown    # noqa: E402
 from core.gateway.client import GatewayError, ModelGateway, PROVIDERS  # noqa: E402
 from core.gateway import keystore                              # noqa: E402
@@ -43,15 +45,6 @@ DB = ROOT / "config" / "platform.db"
 SKILLS = ROOT / "skills"
 PROJECTS = ROOT / "projects"
 
-# 流水线节点定义。N1-N6 是真实的顺序，编号在这里承载信息，不是装饰。
-NODES = [
-    {"no": "N2", "contract": "story_file", "skill": "writer", "level": "episode"},
-    {"no": "N3", "contract": "screenplay", "skill": "playwright", "level": "episode"},
-    {"no": "N4", "contract": "character_board", "skill": "casting", "level": "series"},
-    {"no": "N5", "contract": "location_board", "skill": "set_dresser", "level": "series"},
-    {"no": "N6", "contract": "shotlist", "skill": "storyboard", "level": "episode"},
-]
-
 STATUS_CN = {
     "approved": "已通过",
     "revised": "已修改",
@@ -61,10 +54,30 @@ STATUS_CN = {
 }
 
 
-# 正在跑的生成任务。key = (series, contract)
+# 正在跑的生成任务。key = (scope_type, scope_id, contract) —— 必须含集号，
+# 否则同一部剧两集同时生成会互相顶掉状态。
 # 内存态：进程重启就没了，重启后页面会显示节点还是原状态，重新点一次即可。
 JOBS: dict[tuple, dict] = {}
 JOBS_LOCK = threading.Lock()
+
+
+def _job_key(node, series_id: str, episode_no: int | None) -> tuple:
+    return (*scope_of(node, series_id, episode_no), node.contract)
+
+
+@lru_cache(maxsize=None)
+def _provider_of(skill_id: str) -> str:
+    """
+    读 skill 绑定的厂商。加缓存：流水线页每渲染一次要问 5 个节点，
+    没有缓存就是每次翻页读 5 遍 manifest。
+    manifest 的 model 段不能在界面上改，所以缓存不会读到脏值；
+    手工改了 manifest 需要重启工作台。
+    """
+    try:
+        return SkillPackage.load(SKILLS / skill_id).model_config.get(
+            "provider", "anthropic")
+    except SkillError:
+        return "anthropic"
 
 
 def create_app() -> Flask:
@@ -108,16 +121,15 @@ def create_app() -> Flask:
 
         rows, blocked = [], None
         for n in NODES:
-            art = store.latest_artifact(
-                "series" if n["level"] == "series" else "episode",
-                sid, n["contract"])
-            cn = contracts.get(n["contract"])
+            art = store.latest_artifact(*scope_of(n, sid, ep), n.contract)
+            cn = contracts.get(n.contract)
             st = art["status"] if art else None
-            provider = SkillPackage.load(SKILLS / n["skill"]).model_config.get(
-                "provider", "anthropic")
+            provider = _provider_of(n.skill)
             key_cfg = PROVIDERS.get(provider, {})
             has_key = bool(keystore.get_key(provider, key_cfg.get("key_env", "")))
-            rows.append({**n, "cn_name": cn.cn_name, "artifact": art,
+            rows.append({"no": n.no, "contract": n.contract, "skill": n.skill,
+                         "level": n.level, "level_cn": n.level_cn,
+                         "cn_name": cn.cn_name, "artifact": art,
                          "status": st, "status_cn": STATUS_CN.get(st, st),
                          "provider": provider,
                          "provider_label": key_cfg.get("label", provider),
@@ -135,7 +147,7 @@ def create_app() -> Flask:
 
         with JOBS_LOCK:
             for r in rows:
-                j = JOBS.get((sid, r["contract"]))
+                j = JOBS.get(_job_key(node_for(r["contract"]), sid, ep))
                 r["job"] = dict(j) if j else None
             busy = any(r["job"] and r["job"]["state"] == "running" for r in rows)
 
@@ -150,11 +162,11 @@ def create_app() -> Flask:
     # ---------- 生成节点（界面直接跑，不用命令行） ----------
     @app.post("/series/<sid>/run/<contract>")
     def run_node(sid, contract):
-        node = next((n for n in NODES if n["contract"] == contract), None)
+        node = node_for(contract)
         if not node:
             abort(404)
         ep = request.form.get("ep", type=int) or 1
-        key = (sid, contract)
+        key = _job_key(node, sid, ep)
 
         with JOBS_LOCK:
             if key in JOBS and JOBS[key]["state"] == "running":
@@ -185,7 +197,7 @@ def create_app() -> Flask:
 
     def _do_run(sid, node, opts):
         from cli.avctl import _build_prompt
-        pkg = SkillPackage.load(SKILLS / node["skill"])
+        pkg = SkillPackage.load(SKILLS / node.skill)
         errs = pkg.validate()
         if errs:
             raise RuntimeError(f"{pkg.id} 不符合平台规范：{errs[0]}")
@@ -195,12 +207,13 @@ def create_app() -> Flask:
         director_id = opts.get("director") or (srow["director_id"] if srow else None)
 
         # 自动收集上游产物：不用你手工指定文件
+        ep_no = opts.get("ep")
         inputs, ids = [], []
         for need in pkg.input_contracts:
-            up = next((n for n in NODES if n["contract"] == need), None)
-            row = store.latest_artifact(
-                "series" if up and up["level"] == "series" else "episode",
-                sid, need)
+            up = node_for(need)
+            if not up:
+                continue
+            row = store.latest_artifact(*scope_of(up, sid, ep_no), need)
             if row:
                 a = astore.load(row["path"])
                 inputs.append(a)
@@ -241,7 +254,7 @@ def create_app() -> Flask:
         if verrs:
             raise RuntimeError("产出不符合契约，未保存：" + "；".join(verrs[:3]))
 
-        ep = opts.get("ep") if node["level"] != "series" else None
+        ep = ep_no if node.level != "series" else None
         acc = srow["collection_id"] if srow else "s1"
         with store.conn() as c:
             crow = c.execute("SELECT account_id FROM collections WHERE id=?",
@@ -249,9 +262,9 @@ def create_app() -> Flask:
         account = crow["account_id"] if crow else "default"
         p = astore.save(art, account=account, collection=acc,
                         series=sid, episode_no=ep)
-        store.register_artifact(art, astore.rel(p),
-                                "series" if node["level"] == "series" else "episode",
-                                sid, art["lineage"]["input_hash"])
+        scope_type, scope_id = scope_of(node, sid, ep_no)
+        store.register_artifact(art, astore.rel(p), scope_type, scope_id,
+                                art["lineage"]["input_hash"])
 
     # ---------- 新建剧集 ----------
     @app.post("/series/new")

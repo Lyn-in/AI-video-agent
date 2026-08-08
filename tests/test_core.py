@@ -287,6 +287,110 @@ class TestSecurityBoundaries(unittest.TestCase):
                       {str(r.rule) for r in app.url_map.iter_rules()})
 
 
+class TestPipelineScope(unittest.TestCase):
+    """
+    集级产物的索引口径。这里出错不会报错，只会静默串集 ——
+    第 2 集的剧本盖掉第 1 集的，界面上还显示得好好的。
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_episode_scope_ids_differ(self):
+        from core.pipeline import node_for, scope_of
+        n = node_for("story_file")
+        self.assertNotEqual(scope_of(n, "s", 1), scope_of(n, "s", 2))
+
+    def test_series_level_ignores_episode(self):
+        """角色板是全集共用的，给了集号也不该按集分开存。"""
+        from core.pipeline import node_for, scope_of
+        n = node_for("character_board")
+        self.assertEqual(scope_of(n, "s", 1), ("series", "s"))
+        self.assertEqual(scope_of(n, "s", 2), ("series", "s"))
+
+    def test_level_derived_from_series_level(self):
+        from core.pipeline import NODES
+        from core.store.artifacts import SERIES_LEVEL
+        for n in NODES:
+            want = "series" if n.contract in SERIES_LEVEL else "episode"
+            self.assertEqual(n.level, want, f"{n.contract} 层级判定不一致")
+
+    def test_two_episodes_do_not_collide(self):
+        """同一剧集两集的同类产物必须各存各的。"""
+        from core.pipeline import node_for, scope_of
+        from core.store.db import Store
+        store = Store(self.tmp / "t.db")
+        store.init()
+        n = node_for("story_file")
+        for ep in (1, 2):
+            art = envelope("story_file", {})
+            art["artifact_id"] = f"sf-ep{ep}"
+            store.register_artifact(art, f"a/b/s/ep{ep:02d}/story_file.json",
+                                    *scope_of(n, "s", ep))
+        got = {ep: store.latest_artifact(*scope_of(n, "s", ep), "story_file")["id"]
+               for ep in (1, 2)}
+        self.assertNotEqual(got[1], got[2])
+
+    def test_migration_repairs_legacy_scope_ids(self):
+        """老库里集级产物的 scope_id 是剧集 id，init() 要能就地修好。"""
+        from core.store.db import Store
+        db = self.tmp / "legacy.db"
+        store = Store(db)
+        store.init()
+        with store.conn() as c:
+            c.execute("INSERT INTO artifacts(id,contract,scope_type,scope_id,"
+                      "path,status) VALUES(?,?,?,?,?,?)",
+                      ("old-1", "story_file", "episode", "s",
+                       "a/b/s/ep02/story_file.json", "approved"))
+            # 集级契约但落在 _series/：按口径应改判为剧集级
+            c.execute("INSERT INTO artifacts(id,contract,scope_type,scope_id,"
+                      "path,status) VALUES(?,?,?,?,?,?)",
+                      ("old-2", "screenplay", "episode", "s",
+                       "a/b/s/_series/screenplay.json", "approved"))
+            c.execute("DELETE FROM meta WHERE key='schema_version'")
+
+        store.migrate()
+        with store.conn() as c:
+            rows = {r["id"]: (r["scope_type"], r["scope_id"]) for r in
+                    c.execute("SELECT id,scope_type,scope_id FROM artifacts")}
+        self.assertEqual(rows["old-1"], ("episode", "s-ep2"))
+        self.assertEqual(rows["old-2"], ("series", "s"))
+
+        store.migrate()          # 重复执行不得再动数据
+        with store.conn() as c:
+            again = {r["id"]: (r["scope_type"], r["scope_id"]) for r in
+                     c.execute("SELECT id,scope_type,scope_id FROM artifacts")}
+        self.assertEqual(rows, again, "迁移不幂等")
+
+
+class TestPipelineTemplate(unittest.TestCase):
+    """
+    Jinja 的子模板 block 是编译期注册的，包在 {% if %} 外面不生效。
+    这个坑踩过一次：流水线页变成无条件每 6 秒重载，把正在输入的 brief 冲掉。
+    """
+
+    def _render(self, busy):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        app = create_app()
+        with app.test_request_context():      # url_for 需要请求上下文
+            from flask import render_template
+            return render_template(
+                "pipeline.html",
+                s={"id": "s", "name": "t", "genre_tags": [], "director_id": None},
+                eps=[], ep=1, rows=[], blocked=None, directors=[],
+                busy=busy, missing_providers=[])
+
+    def test_no_refresh_when_idle(self):
+        self.assertNotIn("http-equiv=\"refresh\"", self._render(False))
+
+    def test_refresh_when_busy(self):
+        self.assertIn("http-equiv=\"refresh\"", self._render(True))
+
+
 class TestSkillExport(unittest.TestCase):
     """导出的 skill 必须自包含 —— 脱离平台后没有引擎注入。"""
 

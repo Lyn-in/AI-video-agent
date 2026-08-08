@@ -40,6 +40,7 @@ from core.store.artifacts import (                             # noqa: E402
     ArtifactStore, make_envelope, input_hash,
 )
 from core.store.db import Store                                # noqa: E402
+from core.pipeline import NODES, node_for, scope_of            # noqa: E402
 from core.engine.gate import (                                 # noqa: E402
     make_diff, change_ratio, build_retry_brief, MAJOR_REVISION_THRESHOLD,
 )
@@ -625,8 +626,13 @@ def cmd_run(args):
 
     path = astore.save(art, account=args.account, collection=args.collection,
                        series=args.series, episode_no=args.episode)
-    store.register_artifact(art, astore.rel(path), "episode" if args.episode
-                            else "series", args.series, art["lineage"]["input_hash"])
+    # 归属层级看契约本身，不看命令行有没有给 --episode ——
+    # 给剧集级 skill 传 --episode 不该把它记成集级产物。
+    node = node_for(contract_name)
+    scope_type, scope_id = (scope_of(node, args.series, args.episode)
+                            if node else ("series", args.series))
+    store.register_artifact(art, astore.rel(path), scope_type, scope_id,
+                            art["lineage"]["input_hash"])
     print(f"{OK} 产物已生成并通过契约校验")
     print(f"   {path}")
     print(f"   审阅版: {path.with_suffix('.md')}")
@@ -702,14 +708,6 @@ def _build_prompt(pkg: SkillPackage, brief: str, inputs: list[dict],
 
 # ---------------- pipeline（流水线看板 CLI 版） ----------------
 
-NODE_SEQ = [
-    ("N1-N2", "story_file", "writer", "episode"),
-    ("N3", "screenplay", "playwright", "episode"),
-    ("N4", "character_board", "casting", "series"),
-    ("N5", "location_board", "set_dresser", "series"),
-    ("N6", "shotlist", "storyboard", "episode"),
-]
-
 STATUS_MARK = {
     "approved": OK,
     "revised": "~",
@@ -724,21 +722,19 @@ def cmd_pipeline(args):
                                      if args.episode else ""))
     print("=" * 58)
     blocked = None
-    for label, contract, skill, level in NODE_SEQ:
-        c = contracts.get(contract)
-        row = store.latest_artifact(
-            "series" if level == "series" else "episode",
-            args.series, contract)
+    for n in NODES:
+        c = contracts.get(n.contract)
+        row = store.latest_artifact(*scope_of(n, args.series, args.episode),
+                                    n.contract)
         if not row:
             state, mark = "未开始", "-"
         else:
             state = row["status"]
             mark = STATUS_MARK.get(state, "?")
-        scope = "剧集级" if level == "series" else "集级"
-        print(f" {mark}  {label:6} {c.cn_name:5} {scope}"
-              f"  [{skill}]  {state}")
+        print(f" {mark}  {n.no:6} {c.cn_name:5} {n.level_cn}"
+              f"  [{n.skill}]  {state}")
         if blocked is None and (not row or row["status"] != "approved"):
-            blocked = (label, c.cn_name, state)
+            blocked = (n.no, c.cn_name, state)
     print("=" * 58)
     if blocked:
         print(f" 当前卡点: {blocked[0]} {blocked[1]}（{blocked[2]}）")

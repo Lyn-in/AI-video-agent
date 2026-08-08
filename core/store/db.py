@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -106,9 +107,18 @@ CREATE TABLE IF NOT EXISTS skill_versions (
     PRIMARY KEY (skill_id, version, created_at)
 );
 
+-- 库自身的元信息。目前只放 schema_version，供迁移判定。
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_artifacts_scope
     ON artifacts(scope_type, scope_id, contract);
 """
+
+# 当前 schema 版本。每加一次迁移 +1，并在 MIGRATIONS 里补一条。
+SCHEMA_VERSION = 1
 
 
 class Store:
@@ -134,6 +144,24 @@ class Store:
     def init(self):
         with self.conn() as c:
             c.executescript(SCHEMA)
+        self.migrate()
+
+    # ---------- 迁移 ----------
+    def migrate(self):
+        """
+        幂等迁移。放在 init() 里自动跑，而不是做成一条要用户记住的命令 ——
+        这是个双击启动的单机工具，没人会去读迁移说明。
+        """
+        with self.conn() as c:
+            row = c.execute("SELECT value FROM meta WHERE key='schema_version'"
+                            ).fetchone()
+            cur = int(row["value"]) if row else 0
+            if cur >= SCHEMA_VERSION:
+                return
+            if cur < 1:
+                _migrate_1_episode_scope(c)
+            c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                      ("schema_version", str(SCHEMA_VERSION)))
 
     # ---------- 项目结构 ----------
     def create_account(self, id_, name, show_bible=None):
@@ -232,3 +260,35 @@ class Store:
         with self.conn() as c:
             c.execute("INSERT INTO skill_versions(skill_id,version,path,note)"
                       " VALUES(?,?,?,?)", (skill_id, version, str(path), note))
+
+
+# ---------- 迁移实现 ----------
+
+_EP_IN_PATH = re.compile(r"(?:^|/)ep(\d+)/")
+
+
+def _migrate_1_episode_scope(c):
+    """
+    集级产物原先拿剧集 id 当 scope_id，导致同一部剧的第 1 集和第 2 集
+    在索引里互相覆盖（文件落在 ep01/ ep02/ 分得开，索引分不开）。
+    改为「剧集id-ep集号」，集号从产物路径里回读。
+
+    路径里没有 epNN/ 的行，说明产物当初落在 _series/，
+    按 core.pipeline.scope_of() 的口径它就该记成剧集级，一并改正。
+    """
+    rows = c.execute(
+        "SELECT id, scope_id, path FROM artifacts WHERE scope_type='episode'"
+    ).fetchall()
+    for r in rows:
+        m = _EP_IN_PATH.search(r["path"] or "")
+        if not m:
+            c.execute("UPDATE artifacts SET scope_type='series' WHERE id=?",
+                      (r["id"],))
+            continue
+        ep = int(m.group(1))
+        sid = r["scope_id"] or ""
+        # 已经是 <series>-ep<N> 形态就跳过，保证重复执行安全。
+        if sid.endswith(f"-ep{ep}"):
+            continue
+        c.execute("UPDATE artifacts SET scope_id=? WHERE id=?",
+                  (f"{sid}-ep{ep}", r["id"]))
