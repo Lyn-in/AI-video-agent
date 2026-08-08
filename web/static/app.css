@@ -1,0 +1,214 @@
+/* ============================================================
+   AI视频Agent平台 · 生产工作台
+   视觉方向：通告单 / 场记板
+   审核门在真实剧组里就是盖章，所以「已通过」盖一枚印章 —— 签名元素。
+   ============================================================ */
+
+:root {
+  --paper:      #DDE3E4;   /* 通告单纸 · 冷灰蓝 */
+  --paper-hi:   #EFF3F3;   /* 高亮纸面 */
+  --ink:        #16242B;   /* 墨 */
+  --muted:      #6E7F86;   /* 次要信息 */
+  --stamp:      #A8321E;   /* 印章红 · 唯一强调色 */
+  --pending:    #8A6410;   /* 待办琥珀 */
+  --rule:       #B6C1C4;   /* 分隔线 */
+
+  --serif: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+  --sans: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.65;
+  /* 通告单的纸纹：极淡的横向纹理 */
+  background-image: repeating-linear-gradient(
+    to bottom, transparent 0 27px, rgba(22,36,43,.025) 27px 28px);
+}
+
+a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+a:hover { border-bottom-color: var(--stamp); }
+
+/* ---------- 抬头 ---------- */
+.masthead {
+  border-bottom: 2px solid var(--ink);
+  padding: 18px 32px 12px;
+  display: flex; align-items: baseline; gap: 28px; flex-wrap: wrap;
+}
+.masthead h1 {
+  font-family: var(--serif);
+  font-size: 20px; font-weight: 700; margin: 0;
+  letter-spacing: .18em;
+}
+.masthead .sub {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.masthead nav { margin-left: auto; display: flex; gap: 20px; }
+.masthead nav a { border: none; font-size: 13px; color: var(--muted); }
+.masthead nav a:hover, .masthead nav a.on { color: var(--ink); }
+.masthead nav a.on { border-bottom: 2px solid var(--stamp); padding-bottom: 2px; }
+
+main { max-width: 1080px; margin: 0 auto; padding: 28px 32px 80px; }
+
+/* ---------- 区块 ---------- */
+.eyebrow {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--rule); padding-bottom: 6px; margin: 34px 0 14px;
+}
+.eyebrow:first-child { margin-top: 0; }
+
+h2 { font-family: var(--serif); font-size: 17px; margin: 0 0 4px; font-weight: 700; }
+h3 { font-family: var(--serif); font-size: 15px; margin: 22px 0 8px; }
+
+/* ---------- 通告单卡片 ---------- */
+.sheet {
+  background: var(--paper-hi);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ink);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  position: relative;
+}
+.sheet.blocked { border-left-color: var(--pending); }
+.sheet.done { border-left-color: var(--stamp); }
+/* 卡点之后的节点：还没轮到，不是被卡住。静默处理，避免五个节点一起报警 */
+.sheet.waiting { border-left-color: var(--rule); opacity: .58; }
+.sheet.waiting h2 { font-weight: 400; }
+
+.sheet-head { display: flex; align-items: baseline; gap: 12px; }
+.node-no {
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  color: var(--muted); letter-spacing: .06em;
+  min-width: 26px;
+}
+.meta {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  margin-top: 6px; display: flex; gap: 16px; flex-wrap: wrap;
+}
+.scope {
+  font-size: 10px; border: 1px solid var(--rule); padding: 1px 6px;
+  color: var(--muted); font-family: var(--mono);
+}
+
+/* ---------- 签名元素：状态印章 ---------- */
+.stamp {
+  position: absolute; top: 12px; right: 18px;
+  font-family: var(--serif); font-weight: 700;
+  font-size: 13px; letter-spacing: .22em;
+  color: var(--stamp);
+  border: 2px solid var(--stamp);
+  border-radius: 2px;
+  padding: 5px 12px 4px;
+  transform: rotate(-7deg);
+  opacity: .82;
+  line-height: 1.2; text-align: center;
+  animation: stamp-in .18s ease-out;
+}
+.stamp small {
+  display: block; font-family: var(--mono); font-size: 9px;
+  letter-spacing: .06em; font-weight: 400; opacity: .8;
+}
+@keyframes stamp-in {
+  from { transform: rotate(-7deg) scale(1.5); opacity: 0; }
+  to   { transform: rotate(-7deg) scale(1); opacity: .82; }
+}
+.stamp.pending { color: var(--pending); border-color: var(--pending); }
+.stamp.none    { color: var(--muted);   border-color: var(--rule); opacity: .55; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp { animation: none; }
+}
+
+/* ---------- 表格 ---------- */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--ink); padding: 6px 10px 6px 0; font-weight: 500;
+}
+td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--rule);
+     vertical-align: top; }
+
+/* ---------- 按钮 ---------- */
+button, .btn {
+  font-family: var(--sans); font-size: 13px;
+  background: transparent; color: var(--ink);
+  border: 1px solid var(--ink); border-radius: 0;
+  padding: 7px 16px; cursor: pointer;
+}
+button:hover, .btn:hover { background: var(--ink); color: var(--paper-hi); }
+button.primary { background: var(--stamp); border-color: var(--stamp); color: #fff; }
+button.primary:hover { background: #8C2716; border-color: #8C2716; }
+button:focus-visible, a:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--stamp); outline-offset: 2px;
+}
+
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+/* ---------- 表单 ---------- */
+textarea, input[type=text] {
+  width: 100%; font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  background: var(--paper-hi); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 0; padding: 12px;
+}
+textarea:focus, input:focus { border-color: var(--ink); }
+label { font-family: var(--mono); font-size: 11px; color: var(--muted);
+        letter-spacing: .08em; text-transform: uppercase;
+        display: block; margin: 16px 0 5px; }
+
+/* ---------- 提示 ---------- */
+.note { color: var(--muted); font-size: 12.5px; }
+.warn {
+  border-left: 3px solid var(--pending); background: var(--paper-hi);
+  padding: 12px 14px; margin: 14px 0; font-size: 13px;
+}
+.err {
+  border-left: 3px solid var(--stamp); background: var(--paper-hi);
+  padding: 12px 14px; margin: 14px 0; font-size: 13px;
+}
+.err ul { margin: 8px 0 0; padding-left: 18px; }
+.err li { font-family: var(--mono); font-size: 12px; margin-bottom: 4px; }
+
+.empty {
+  border: 1px dashed var(--rule); padding: 32px; text-align: center;
+  color: var(--muted); background: var(--paper-hi);
+}
+.empty strong { display: block; color: var(--ink); font-family: var(--serif);
+                font-size: 15px; margin-bottom: 6px; }
+
+code, .mono { font-family: var(--mono); font-size: 12px; }
+pre {
+  background: var(--paper-hi); border: 1px solid var(--rule);
+  padding: 14px; overflow-x: auto; font-family: var(--mono);
+  font-size: 12px; line-height: 1.6; max-height: 520px;
+}
+
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag {
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  border: 1px solid var(--rule); padding: 1px 7px;
+}
+
+.epbar { display: flex; gap: 8px; margin: 10px 0 22px; flex-wrap: wrap; }
+.epbar a {
+  font-family: var(--mono); font-size: 12px; padding: 3px 12px;
+  border: 1px solid var(--rule);
+}
+.epbar a.on { border-color: var(--ink); background: var(--ink); color: var(--paper-hi); }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+@media (max-width: 820px) {
+  .cols { grid-template-columns: 1fr; }
+  main { padding: 20px 18px 60px; }
+  .masthead { padding: 14px 18px 10px; gap: 14px; }
+  .stamp { position: static; display: inline-block; margin-top: 10px; }
+}

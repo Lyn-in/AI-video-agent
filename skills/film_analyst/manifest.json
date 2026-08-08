@@ -1,0 +1,20 @@
+{
+  "id": "film_analyst",
+  "name": "拉片员",
+  "type": "utility",
+  "team": "supply",
+  "version": "0.1.0",
+  "input_contracts": [],
+  "output_contract": null,
+  "genre_tags": [],
+  "model": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "temperature": 0.6,
+    "max_tokens": 16000
+  },
+  "references": {
+    "max_tokens": 20000,
+    "default_purpose": "align_voice"
+  }
+}

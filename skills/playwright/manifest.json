@@ -1,0 +1,22 @@
+{
+  "id": "playwright",
+  "name": "编剧",
+  "type": "worker",
+  "team": "content",
+  "version": "0.1.0",
+  "input_contracts": [
+    "story_file"
+  ],
+  "output_contract": "screenplay",
+  "genre_tags": [],
+  "model": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "temperature": 1.0,
+    "max_tokens": 8000
+  },
+  "references": {
+    "max_tokens": 20000,
+    "default_purpose": "align_voice"
+  }
+}

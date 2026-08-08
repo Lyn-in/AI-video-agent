@@ -1,0 +1,116 @@
+{% extends "base.html" %}{% set nav='skills' %}
+{% block title %}{{ p.id }}{% endblock %}
+{% block body %}
+<div class="eyebrow">Skill · {{ p.manifest.name }}</div>
+<div class="sheet">
+  <div class="sheet-head"><h2>{{ p.manifest.name }}</h2>
+    <span class="scope">{{ p.manifest.type }}</span></div>
+  <div class="meta">
+    <span class="mono">{{ p.id }} v{{ p.version }}</span>
+    <span>输出 {{ p.output_contract or '—' }}</span>
+    <span>必需上游 {{ p.required_inputs|join('、') or '无' }}</span>
+    <span>{{ p.model_config.provider }}/{{ p.model_config.model }}
+      T={{ p.model_config.temperature }}</span>
+  </div>
+</div>
+
+{% if errs %}
+<div class="err"><strong>不符合平台规范</strong>
+<ul>{% for e in errs %}<li>{{ e }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<div class="cols">
+  <div>
+    <div class="eyebrow">题材模块</div>
+    {% if p.genres %}
+    <table><tr><th>模块</th><th>别名</th></tr>
+    {% for g in p.genres %}<tr><td>{{ g.title }}</td>
+    <td class="note">{{ g.aliases|join('、') }}</td></tr>{% endfor %}</table>
+    {% else %}<p class="note">无题材模块。选角/场务/分镜不开题材维度——
+    它们的变异来源是导演。</p>{% endif %}
+  </div>
+  <div>
+    <div class="eyebrow">Reference 治理</div>
+    {% if gov.stale or gov.misleading or gov.healthy %}
+    {% if gov.misleading %}
+    <div class="err"><strong>误导（引用后总被大改）</strong>
+    <ul>{% for h in gov.misleading %}<li>{{ h.ref_id }} —
+      引用 {{ h.cited_count }} 次，大改率 {{ (h.ratio*100)|round|int }}%</li>
+    {% endfor %}</ul></div>{% endif %}
+    {% if gov.stale %}
+    <p class="note"><strong>闲置 {{ gov.stale|length }} 条</strong>：从未被引用，
+    多半是标签打错了。留着会拖慢检索精度。</p>{% endif %}
+    <p class="note">健康 {{ gov.healthy|length }} 条。</p>
+    {% else %}<p class="note">还没有引用记录。</p>{% endif %}
+  </div>
+</div>
+
+<div class="eyebrow">质量飞轮</div>
+{% if stats.count %}
+<div class="sheet">
+  <div class="sheet-head"><h2>{{ stats.count }} 条人工修改反馈</h2>
+    <span class="scope">{{ '可生成建议' if stats.count >= min_samples
+      else '样本不足' }}</span></div>
+  {% if stats.hot_fields %}
+  <div class="meta"><span>高频被改：{% for f,n in stats.hot_fields %}{{ f }}
+    ×{{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</span></div>
+  {% endif %}
+  {% if stats.by_director and stats.by_director|length > 1 %}
+  <div class="warn" style="margin-top:10px">修改分布在多个导演下。
+  若集中于某一个导演，问题可能出在导演约束而非 skill 本体——改错地方会越改越糟。</div>
+  {% endif %}
+  {% if stats.count < min_samples %}
+  <p class="note">攒够 {{ min_samples }} 条再生成建议。
+  样本太少会把偶然当规律。</p>
+  {% else %}
+  <p class="note">生成建议：<code>avctl flywheel suggest {{ p.id }}</code></p>
+  {% endif %}
+</div>
+{% else %}
+<p class="note">还没有反馈。你在审核门里改的每一处都会归集到这里，
+攒够 {{ min_samples }} 条就能生成 skill 改进建议。</p>
+{% endif %}
+
+{% if proposals %}
+{% set prop = proposals[0] %}
+<div class="eyebrow">待批建议 · {{ prop.created_at }}</div>
+<div class="sheet blocked">
+  <div class="sheet-head"><h2>{{ prop.data.verdict }}</h2>
+    <span class="scope">基于 {{ prop.based_on }} 条反馈</span></div>
+  <p style="margin:8px 0">{{ prop.data.evidence_summary }}</p>
+</div>
+<form method="post" action="{{ url_for('proposal_apply', sid=p.id) }}">
+  {% for s in prop.suggestions %}
+  <div class="sheet">
+    <label style="margin:0 0 8px">
+      <input type="checkbox" name="pick" value="{{ loop.index }}">
+      第 {{ loop.index }} 条 · 章节「{{ s.section }}」 · {{ s.kind }}
+      · 置信 {{ s.confidence }}
+    </label>
+    <p class="note">依据：{{ s.why }}</p>
+    {% if s.current %}<p class="note">原文：<code>{{ s.current[:200] }}</code></p>{% endif %}
+    <p>改为：{{ s.proposed }}</p>
+  </div>
+  {% endfor %}
+  <div class="actions">
+    <button type="submit" class="primary">合入选中项</button>
+    <button type="submit" name="reject" value="1">全部驳回</button>
+  </div>
+  <p class="note">合入后会自动复检规范，不合规立即回滚。
+  skill 是这个平台唯一的资产，不做全自动合入。</p>
+</form>
+{% endif %}
+
+<div class="eyebrow">SKILL.md</div>
+<form method="post" action="{{ url_for('skill_save', sid=p.id) }}">
+  <textarea name="body" rows="30">{{ p.skill_md }}</textarea>
+  <label>改动说明</label>
+  <input type="text" name="note" placeholder="这次改了什么、为什么">
+  <div class="actions"><button type="submit" class="primary">保存并存档旧版</button></div>
+</form>
+
+{% if versions %}
+<div class="eyebrow">历史版本（{{ versions|length }}）</div>
+<ul class="note">{% for v in versions[-10:] %}<li class="mono">{{ v.name }}</li>{% endfor %}</ul>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+config/platform.db
+config/calls.jsonl
+config/secrets.env
+projects/

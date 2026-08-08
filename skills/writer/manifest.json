@@ -1,0 +1,20 @@
+{
+  "id": "writer",
+  "name": "作家",
+  "type": "worker",
+  "team": "content",
+  "version": "0.1.0",
+  "input_contracts": [],
+  "output_contract": "story_file",
+  "genre_tags": [],
+  "model": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "temperature": 1.0,
+    "max_tokens": 8000
+  },
+  "references": {
+    "max_tokens": 20000,
+    "default_purpose": "align_voice"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "emotional.md": {
+    "key": "emotional",
+    "title": "情感",
+    "aliases": [
+      "情感",
+      "亲情",
+      "家庭",
+      "情感剧",
+      "温情",
+      "催泪",
+      "爱情"
+    ]
+  },
+  "suspense.md": {
+    "key": "suspense",
+    "title": "悬疑",
+    "aliases": [
+      "悬疑",
+      "推理",
+      "犯罪",
+      "惊悚",
+      "反转",
+      "烧脑"
+    ]
+  },
+  "comedy.md": {
+    "key": "comedy",
+    "title": "喜剧",
+    "aliases": [
+      "喜剧",
+      "搞笑",
+      "幽默",
+      "沙雕",
+      "轻喜剧"
+    ]
+  },
+  "revenge.md": {
+    "key": "revenge",
+    "title": "爽剧",
+    "aliases": [
+      "爽剧",
+      "逆袭",
+      "打脸",
+      "复仇",
+      "扮猪吃虎",
+      "热血"
+    ]
+  },
+  "realism.md": {
+    "key": "realism",
+    "title": "现实",
+    "aliases": [
+      "现实",
+      "现实主义",
+      "社会",
+      "职场",
+      "生活流",
+      "纪实"
+    ]
+  }
+}

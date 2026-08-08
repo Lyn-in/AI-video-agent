@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% set nav='index' %}
+{% block title %}{{ cn.cn_name }}{% endblock %}
+{% block body %}
+<div class="eyebrow">{{ cn.cn_name }} · 审核门</div>
+<div class="sheet {{ 'done' if art.status=='approved' }}">
+  <div class="sheet-head"><h2>{{ cn.cn_name }}</h2>
+    <span class="scope">{{ art.contract }} v{{ art.contract_version }}</span></div>
+  <div class="meta">
+    <span class="mono">{{ art.artifact_id }}</span>
+    <span>{{ art.produced_by.skill }} v{{ art.produced_by.skill_version }}</span>
+    <span>{{ art.produced_by.model }}</span>
+    {% if art.produced_by.director %}<span>导演 {{ art.produced_by.director }}</span>{% endif %}
+  </div>
+  {% if art.status=='approved' %}
+    <div class="stamp">已通过<small>{{ row.updated_at[:10] }}</small></div>
+  {% else %}<div class="stamp pending">{{ status_cn }}</div>{% endif %}
+</div>
+
+<div class="eyebrow">引用申报</div>
+{% if citations %}
+<table><tr><th>reference</th><th>用途</th><th>解决了什么</th></tr>
+{% for c in citations %}
+<tr><td class="mono">{{ c.ref_id }}</td><td class="mono">{{ c.purpose }}</td>
+<td>{{ c.problem_solved }}</td></tr>{% endfor %}</table>
+<p class="note">申报会被核验。若申报的机制在产物里看不出来，就是假引用，应当打回。</p>
+{% else %}
+<p class="note">本次未引用任何 reference。</p>
+{% endif %}
+
+{% if lineage %}
+<div class="eyebrow">上游</div>
+<p class="note">{% for i in lineage %}<a href="{{ url_for('artifact', aid=i) }}"
+  class="mono">{{ i }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}
+
+<div class="eyebrow">审阅</div>
+<pre>{{ md }}</pre>
+
+<div class="eyebrow">动作</div>
+<form method="post" action="{{ url_for('approve', aid=art.artifact_id) }}">
+  <div class="actions"><button type="submit" class="primary">盖章通过</button></div>
+</form>
+
+<form method="post" action="{{ url_for('reject', aid=art.artifact_id) }}">
+  <label>打回重做 · 修改意见</label>
+  <textarea name="notes" rows="4"
+    placeholder="写清楚哪里不对、该往哪个方向改。意见会拼进重生成的提示词。"></textarea>
+  <div class="actions"><button type="submit">打回重做</button></div>
+</form>
+
+<div class="eyebrow">直接修改</div>
+<form method="post" action="{{ url_for('save', aid=art.artifact_id) }}">
+  <label>产物正文（改完保存，会校验契约并把 diff 归集到 skill 的 feedback）</label>
+  <textarea name="payload" rows="26">{{ raw }}</textarea>
+  <div class="actions"><button type="submit">保存修改</button></div>
+</form>
+{% endblock %}

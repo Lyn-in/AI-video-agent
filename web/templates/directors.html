@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% set nav='directors' %}
+{% block body %}
+<div class="eyebrow">导演库</div>
+<p class="note">导演不是流水线节点，是注入到每次调用的风格约束层。
+同一个编剧 skill 在不同导演下产出完全不同的剧本。
+作家不吃导演上下文——故事在前，导演在后。</p>
+{% for x in ds %}
+<div class="sheet">
+  <div class="sheet-head"><h2>{{ x.d.name }}</h2>
+    <span class="scope mono">{{ x.d.id }}</span></div>
+  <p style="margin:6px 0">{{ x.d.one_line }}</p>
+  <div class="tags">{% for t in x.d.genre_tags %}<span class="tag">{{ t }}</span>{% endfor %}</div>
+  {% if x.errs %}<div class="err"><ul>
+    {% for e in x.errs %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+</div>
+{% endfor %}
+<p class="note">盲测：<code>avctl blindtest playwright --directors A B --input &lt;故事档案&gt;</code></p>
+{% endblock %}

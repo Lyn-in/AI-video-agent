@@ -1,0 +1,22 @@
+{
+  "id": "set_dresser",
+  "name": "场务",
+  "type": "worker",
+  "team": "production",
+  "version": "0.1.0",
+  "input_contracts": [
+    "screenplay"
+  ],
+  "output_contract": "location_board",
+  "genre_tags": [],
+  "model": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "temperature": 1.0,
+    "max_tokens": 8000
+  },
+  "references": {
+    "max_tokens": 20000,
+    "default_purpose": "align_voice"
+  }
+}
