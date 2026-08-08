@@ -440,6 +440,135 @@ class TestNodeCardPolling(unittest.TestCase):
         self.assertNotIn("http-equiv=\"refresh\"", page)
 
 
+class TestDirectorEditing(unittest.TestCase):
+    """
+    导演库原先只有卡片，点不进去也改不了 ——
+    skill 能在界面上改 SKILL.md，导演却只能去翻文件，这是不对称的。
+    """
+
+    def setUp(self):
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.c = create_app().test_client()
+        from core.skillkit.director import discover_directors
+        ds = discover_directors(SKILLS)
+        if not ds:
+            self.skipTest("无导演")
+        self.did = ds[0].id
+
+    def test_list_links_into_detail(self):
+        body = self.c.get("/directors").get_data(as_text=True)
+        self.assertIn(f'/directors/{self.did}"', body, "导演卡片点不进去")
+
+    def test_detail_shows_editor(self):
+        body = self.c.get(f"/directors/{self.did}").get_data(as_text=True)
+        self.assertEqual(self.c.get(f"/directors/{self.did}").status_code, 200)
+        self.assertIn('name="body"', body, "导演详情里没有编辑框")
+        self.assertIn('name="_csrf"', body)
+
+    def test_path_traversal_blocked(self):
+        for bad in ("..", "../../etc", "....//"):
+            with self.subTest(did=bad):
+                self.assertIn(self.c.get(f"/directors/{bad}").status_code,
+                              (404, 308))
+
+    def test_save_round_trips(self):
+        from core.skillkit.director import Director
+        root = SKILLS / "directors" / self.did
+        before = (root / "SKILL.md").read_text(encoding="utf-8")
+        self.addCleanup(lambda: (root / "SKILL.md").write_text(
+            before, encoding="utf-8"))
+        page = self.c.get(f"/directors/{self.did}").get_data(as_text=True)
+        tok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
+        r = self.c.post(f"/directors/{self.did}/save",
+                        data={"body": before + "\n<!-- 测试 -->\n",
+                              "_csrf": tok})
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("<!-- 测试 -->",
+                      Director.load(root).doc)
+
+
+class TestNewlineNormalization(unittest.TestCase):
+    """
+    浏览器提交 <textarea> 一律用 CRLF。不收回 LF 的话，在网页上点一次
+    「保存」——哪怕一个字没改——整个文件每一行都算改过：
+    SKILL.md 的版本存档全是满屏 diff，产物 JSON 的多行字段里还会混进 \\r。
+    这类污染不报错，只是慢慢把版本历史和飞轮统计弄脏。
+    """
+
+    def setUp(self):
+        try:
+            from web import deps
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.deps = deps
+
+    def test_crlf_collapsed(self):
+        self.assertEqual(self.deps.normalize_newlines("a\r\nb\r\nc"), "a\nb\nc")
+        self.assertEqual(self.deps.normalize_newlines("a\rb"), "a\nb")
+        self.assertEqual(self.deps.normalize_newlines("a\nb"), "a\nb")
+
+    def test_skill_save_keeps_lf(self):
+        from web.app import create_app
+        c = create_app().test_client()
+        root = SKILLS / "writer"
+        before = (root / "SKILL.md").read_bytes()
+        versions = root / "versions"
+        had_versions = versions.is_dir()
+
+        def restore():
+            (root / "SKILL.md").write_bytes(before)
+            if not had_versions:
+                shutil.rmtree(versions, ignore_errors=True)
+        self.addCleanup(restore)
+
+        page = c.get("/skills/writer").get_data(as_text=True)
+        tok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
+        # 模拟浏览器：正文用 CRLF 回传
+        body = before.decode("utf-8").replace("\n", "\r\n")
+        r = c.post("/skills/writer/save",
+                   data={"body": body, "note": "", "_csrf": tok})
+        self.assertEqual(r.status_code, 302)
+        after = (root / "SKILL.md").read_bytes()
+        self.assertNotIn(b"\r", after, "保存把换行写成了 CRLF")
+        self.assertEqual(after, before, "空保存不该产生任何改动")
+
+
+class TestLauncherPort(unittest.TestCase):
+    """
+    端口被占时不能静默换端口。
+
+    用户记住的、文档写的、书签存的都是 5001。上次没关干净的旧窗口占着 5001、
+    新代码起在 5002，人对着旧界面操作，看到的全是已经修好的老 bug ——
+    而且完全不知道为什么。这种「看起来像代码没生效」的坑最难自查。
+    """
+
+    def test_warns_when_port_taken(self):
+        import contextlib
+        import io
+        import socket
+        from tools import launcher
+
+        s = socket.socket()
+        self.addCleanup(s.close)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", 5001))
+        except OSError:
+            self.skipTest("5001 已被占用，无法构造场景")
+        s.listen(5)
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            port = launcher.pick_port()
+        out = buf.getvalue()
+        self.assertNotEqual(port, 5001)
+        self.assertIn("5001", out, "换了端口却没说")
+        self.assertIn("⚠", out)
+
+
 class TestSecurity(unittest.TestCase):
     """
     CSRF 是本机自用也必须做的：工作台在 127.0.0.1，但同源策略拦不住

@@ -67,6 +67,22 @@ def load_skill(sid: str) -> SkillPackage:
     return SkillPackage.load(root)
 
 
+def normalize_newlines(text: str) -> str:
+    """
+    把 textarea 提交回来的 CRLF 收回 LF。
+
+    浏览器按 HTML 规范提交 <textarea> 时一律用 CRLF，于是在网页上点一次
+    「保存」——哪怕一个字没改——整个文件的每一行都会被判定为改过：
+    SKILL.md 的版本存档全是满屏 diff，产物 JSON 里的多行字段（锚定描述之类）
+    还会被塞进 \\r。这类污染不报错，只是慢慢把版本历史和飞轮统计弄脏。
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def form_text(form, key: str, default: str = "") -> str:
+    return normalize_newlines(form.get(key, default) or default)
+
+
 def render_error(msg: str):
     return render_template("errors.html", errs=[msg], aid=None)
 

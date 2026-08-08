@@ -17,7 +17,7 @@
   <tr><th>导演</th><th>匹配</th><th>命中题材</th><th>风格</th></tr>
   {% for m in matches %}
   <tr class="{{ 'top' if loop.first and m.score }}">
-    <td>{{ m.name }} <span class="note mono">{{ m.id }}</span></td>
+    <td><a href="{{ url_for('directors.detail', did=m.id) }}">{{ m.name }}</a> <span class="note mono">{{ m.id }}</span></td>
     <td class="mono">{{ m.score }}</td>
     <td>{% for h in m.hit %}<span class="tag">{{ h }}</span>{% endfor %}
         {% if not m.hit %}<span class="note">无</span>{% endif %}</td>
@@ -39,7 +39,8 @@
 作家不吃导演上下文 —— 故事在前，导演在后。</p>
 {% for x in ds %}
 <div class="sheet">
-  <div class="sheet-head"><h2>{{ x.d.name }}</h2>
+  <div class="sheet-head">
+    <h2><a href="{{ url_for('directors.detail', did=x.d.id) }}">{{ x.d.name }}</a></h2>
     <span class="scope mono">{{ x.d.id }}</span></div>
   <p class="my-2">{{ x.d.one_line }}</p>
   <div class="tags">{% for t in x.d.genre_tags %}<span class="tag">{{ t }}</span>{% endfor %}</div>

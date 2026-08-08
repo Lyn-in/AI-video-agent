@@ -16,7 +16,8 @@ from core.engine.flywheel import (ApplyError, MIN_SAMPLES, SuggestError,
 from core.skillkit.director import discover_directors
 from core.skillkit.package import SkillPackage, discover
 from web import jobs
-from web.deps import CALL_LOG, SKILLS, load_skill, render_error, store
+from web.deps import (CALL_LOG, SKILLS, form_text, load_skill,
+                      render_error, store)
 
 bp = Blueprint("skills", __name__, url_prefix="/skills")
 
@@ -153,7 +154,7 @@ def save(sid):
     p = load_skill(sid)
     note = request.form.get("note", "")
     p.snapshot(note=note)
-    (p.root / "SKILL.md").write_text(request.form.get("body", ""),
+    (p.root / "SKILL.md").write_text(form_text(request.form, "body"),
                                      encoding="utf-8")
     store.record_skill_version(sid, p.version, p.root / "SKILL.md", note)
     return redirect(url_for("skills.detail", sid=sid))

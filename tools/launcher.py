@@ -115,14 +115,59 @@ def ensure_db():
 
 
 # ---------- 5. 端口 ----------
-def pick_port(start=PORT) -> int:
+def _port_free(p: int) -> bool:
     import socket
-    for p in range(start, start + 12):
-        with socket.socket() as s:
-            if s.connect_ex(("127.0.0.1", p)) != 0:
-                return p
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1", p)) != 0
+
+
+def _is_our_workbench(p: int) -> bool:
+    """占着端口的是不是另一个本工作台。"""
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{p}/", timeout=2) as r:
+            return "AI VIDEO AGENT" in r.read(4096).decode("utf-8", "ignore")
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def pick_port(start=PORT) -> int:
+    """
+    选端口。
+
+    这里原先是静默往后滑：5001 被占就悄悄用 5002。
+    问题是用户记住的、文档里写的、浏览器书签里存的都是 5001 ——
+    上一次没关干净的旧窗口还占着 5001，新代码起在 5002，
+    人对着旧界面操作，看到的全是已经修好的老 bug，而且完全不知道为什么。
+    所以端口一旦不是 5001，必须大声说出来。
+    """
+    if _port_free(start):
+        return start
+
+    stale = _is_our_workbench(start)
+    say()
+    say(BAR)
+    if stale:
+        say(f"  ⚠ 端口 {start} 上已经有一个工作台在跑了")
+        say(BAR)
+        say("  那多半是上次没关干净的旧窗口。它跑的是旧代码，")
+        say("  你在上面操作会看到各种已经修好的老毛病。")
+        say()
+        say("  建议：关掉那个旧的黑窗口，再重新双击启动。")
+        say("  如果你就想两个一起开，本次会用下面这个新地址 ——")
+        say(f"  务必用新地址，不要再打开 127.0.0.1:{start}。")
+    else:
+        say(f"  ⚠ 端口 {start} 被别的程序占用了")
+        say(BAR)
+        say("  本次换一个端口启动，地址见下面。")
+    say(BAR)
+
+    for p in range(start + 1, start + 12):
+        if _port_free(p):
+            return p
     die("找不到可用端口",
-        "5001 到 5012 都被占用了。关掉一些程序再试。")
+        f"{start} 到 {start + 11} 都被占用了。关掉一些程序再试。")
 
 
 def main():

@@ -13,8 +13,9 @@ from core.pipeline import node_for, parse_scope
 from core.skillkit.package import SkillError, SkillPackage
 from core.store.artifacts import to_markdown
 from web import review
-from web.deps import (SKILLS, STATUS_CN, artifact_row, astore, render_error,
-                      set_status, store, write_artifact)
+from web.deps import (SKILLS, STATUS_CN, artifact_row, astore,
+                      normalize_newlines, render_error, set_status,
+                      store, write_artifact)
 
 bp = Blueprint("artifacts", __name__, url_prefix="/artifact")
 
@@ -75,7 +76,8 @@ def save(aid):
     before = astore.load(row["path"])
     cn = contracts.get(before["contract"])
 
-    submitted = {k[2:]: v for k, v in request.form.items() if k.startswith("f_")}
+    submitted = {k[2:]: normalize_newlines(v)
+                 for k, v in request.form.items() if k.startswith("f_")}
     blocks = review.build_blocks(cn, before["payload"], submitted)
     payload, bad = review.parse_blocks(cn, blocks, submitted)
 
@@ -111,7 +113,8 @@ def save_raw(aid):
     before = astore.load(row["path"])
     cn = contracts.get(before["contract"])
     try:
-        payload = json.loads(request.form.get("payload", ""))
+        payload = json.loads(normalize_newlines(
+            request.form.get("payload", "")))
     except json.JSONDecodeError as e:
         return render_error(f"JSON 格式有误，无法保存：{e}"), 400
 
