@@ -3,4 +3,5 @@ __pycache__/
 config/platform.db
 config/calls.jsonl
 config/secrets.env
+config/secrets.json
 projects/

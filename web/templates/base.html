@@ -15,6 +15,7 @@
     <a href="{{ url_for('index') }}" class="{{ 'on' if nav=='index' }}">剧集</a>
     <a href="{{ url_for('skills') }}" class="{{ 'on' if nav=='skills' }}">Skill</a>
     <a href="{{ url_for('directors') }}" class="{{ 'on' if nav=='directors' }}">导演</a>
+    <a href="{{ url_for('settings') }}" class="{{ 'on' if nav=='settings' }}">密钥设置</a>
   </nav>
 </header>
 <main>{% block body %}{% endblock %}</main>

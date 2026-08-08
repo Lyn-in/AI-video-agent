@@ -1,0 +1,45 @@
+{% extends "base.html" %}{% set nav='settings' %}
+{% block title %}密钥设置{% endblock %}
+{% block body %}
+<div class="eyebrow">密钥设置</div>
+<p class="note">在这里填各家大模型厂商的 API 密钥，填好就能在流水线里用对应厂商的模型生成内容。
+密钥只存在这台电脑的 <code>config/secrets.json</code> 里，不会被提交到代码仓库，也不会离开本机。</p>
+
+{% for r in rows %}
+<div class="sheet {{ 'done' if r.configured else '' }}">
+  <div class="sheet-head">
+    <h2>{{ r.label }}</h2>
+    <span class="scope">{{ r.id }}</span>
+  </div>
+  <div class="meta">
+    <span>{{ r.hint }}</span>
+    {% if r.source == 'env' %}<span>当前来自环境变量 {{ r.key_env }}（页面填写不会覆盖它）</span>{% endif %}
+  </div>
+
+  {% if r.configured %}
+    <div class="stamp {{ 'pending' if r.source == 'env' else '' }}">已配置<small>{{ r.masked }}</small></div>
+  {% else %}
+    <div class="stamp none">未配置</div>
+  {% endif %}
+
+  {% if r.source != 'env' %}
+  <form method="post" action="{{ url_for('settings_save', provider=r.id) }}" style="margin-top:14px">
+    <label>{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
+    <input type="password" name="key" placeholder="{{ r.masked or ('粘贴 ' + r.label + ' 的密钥') }}" autocomplete="off">
+    <div class="actions">
+      <button type="submit" class="primary">保存</button>
+      {% if r.configured %}
+      <button type="submit" formaction="{{ url_for('settings_clear', provider=r.id) }}"
+              formnovalidate onclick="return confirm('清除这把密钥？')">清除</button>
+      {% endif %}
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+
+<div class="note" style="margin-top:24px">
+  没有想用的厂商没列在这里？在 <code>core/gateway/client.py</code> 的 <code>PROVIDERS</code>
+  里加一行就行——大多数国内厂商都兼容 OpenAI 的 chat/completions 协议。
+</div>
+{% endblock %}

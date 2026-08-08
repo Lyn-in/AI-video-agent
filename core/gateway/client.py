@@ -12,26 +12,70 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import keystore
+
 
 class GatewayError(Exception):
     pass
 
 
+# 厂商注册表。除 anthropic 外都是 messages 兼容协议（OpenAI 风格 chat/completions），
+# 差异只在 url + 认证头，新增一个厂商只需要在这里加一行。
 PROVIDERS = {
     "anthropic": {
+        "label": "Anthropic（Claude）",
         "url": "https://api.anthropic.com/v1/messages",
         "key_env": "ANTHROPIC_API_KEY",
+        "style": "anthropic",
+        "hint": "console.anthropic.com → API Keys",
     },
     "deepseek": {
+        "label": "DeepSeek",
         "url": "https://api.deepseek.com/v1/chat/completions",
         "key_env": "DEEPSEEK_API_KEY",
+        "style": "openai",
+        "hint": "platform.deepseek.com → API keys",
+    },
+    "openai": {
+        "label": "OpenAI（GPT）",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "key_env": "OPENAI_API_KEY",
+        "style": "openai",
+        "hint": "platform.openai.com → API keys",
+    },
+    "moonshot": {
+        "label": "月之暗面（Kimi）",
+        "url": "https://api.moonshot.cn/v1/chat/completions",
+        "key_env": "MOONSHOT_API_KEY",
+        "style": "openai",
+        "hint": "platform.moonshot.cn → API Key 管理",
+    },
+    "zhipu": {
+        "label": "智谱（GLM）",
+        "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "key_env": "ZHIPU_API_KEY",
+        "style": "openai",
+        "hint": "open.bigmodel.cn → API Keys",
+    },
+    "qwen": {
+        "label": "通义千问（Qwen）",
+        "url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        "key_env": "QWEN_API_KEY",
+        "style": "openai",
+        "hint": "dashscope.console.aliyun.com → API-KEY 管理",
+    },
+    "doubao": {
+        "label": "火山引擎（豆包）",
+        "url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        "key_env": "DOUBAO_API_KEY",
+        "style": "openai",
+        "hint": "console.volcengine.com/ark → API Key",
     },
 }
 
@@ -94,23 +138,24 @@ class ModelGateway:
 
         if provider not in PROVIDERS:
             raise GatewayError(f"未知 provider {provider!r}，支持: {list(PROVIDERS)}")
-        key = os.environ.get(PROVIDERS[provider]["key_env"])
+        cfg = PROVIDERS[provider]
+        key = keystore.get_key(provider, cfg["key_env"])
         if not key:
             raise GatewayError(
-                f"缺少环境变量 {PROVIDERS[provider]['key_env']}。"
-                f"可用 --dry-run 在无密钥情况下跑通流程。"
+                f"还没有配置 {cfg['label']} 的密钥。"
+                f"去网页上的「密钥设置」页填一下，或用 --dry-run 在无密钥情况下跑通流程。"
             )
 
         t0 = time.time()
         last_err = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                if provider == "anthropic":
+                if cfg["style"] == "anthropic":
                     res = self._call_anthropic(
                         key, model, system, user, temperature, max_tokens)
                 else:
                     res = self._call_openai_style(
-                        PROVIDERS[provider]["url"], key, model,
+                        cfg["url"], key, model,
                         system, user, temperature, max_tokens, provider)
                 res.elapsed_sec = round(time.time() - t0, 2)
                 self._log(skill_id, tag, res, system, user)

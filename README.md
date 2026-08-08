@@ -17,7 +17,15 @@ python3 cli/avctl.py init      # 初始化数据库与目录
 python3 cli/avctl.py smoke     # M0 验收自检，应全绿
 ```
 
-零外部依赖，Python 3.11+ 直接跑。真实调用模型时才需要密钥：
+零外部依赖，Python 3.11+ 直接跑。真实调用模型时才需要密钥——
+
+**推荐方式：网页填。** 启动工作台（`avctl web` 或双击启动脚本），
+在页面右上角「密钥设置」里为要用的厂商粘贴 API Key，保存即可，
+不用碰命令行。支持 Anthropic / DeepSeek / OpenAI / 月之暗面 / 智谱 /
+通义千问 / 豆包等多家厂商，见 `core/gateway/client.py` 的 `PROVIDERS`。
+密钥存在本机 `config/secrets.json`，不会进代码仓库。
+
+CI / 无头环境仍可以走环境变量（优先级更高，会覆盖网页填的值）：
 
 ```bash
 cp config/secrets.env.example config/secrets.env   # 填入 key
@@ -80,7 +88,8 @@ python3 cli/avctl.py skill check           # 校验全部
 
 ### 3. 模型网关（`core/gateway/`）
 
-- Anthropic / DeepSeek 统一抽象，urllib 实现，零依赖
+- 多厂商统一抽象（Anthropic / DeepSeek / OpenAI / 月之暗面 / 智谱 / 通义千问 / 豆包……），urllib 实现，零依赖
+- 密钥在网页「密钥设置」页管理（`core/gateway/keystore.py`），环境变量可覆盖，不强制走命令行
 - 每个 skill 独立绑定模型与 temperature（作家可高温发散，分镜必须低温求稳）
 - 重试、token 计费日志（`config/calls.jsonl`）、dry-run 占位模式
 - JSON 输出容错：模型加了围栏或前言也能正确解析

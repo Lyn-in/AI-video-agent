@@ -34,7 +34,8 @@ from core.skillkit.director import (                           # noqa: E402
 )
 from core.skillkit.package import SkillPackage, discover       # noqa: E402
 from core.store.artifacts import ArtifactStore, to_markdown    # noqa: E402
-from core.gateway.client import GatewayError, ModelGateway     # noqa: E402
+from core.gateway.client import GatewayError, ModelGateway, PROVIDERS  # noqa: E402
+from core.gateway import keystore                              # noqa: E402
 from core.store.artifacts import input_hash, make_envelope     # noqa: E402
 from core.store.db import Store                                # noqa: E402
 
@@ -112,8 +113,15 @@ def create_app() -> Flask:
                 sid, n["contract"])
             cn = contracts.get(n["contract"])
             st = art["status"] if art else None
+            provider = SkillPackage.load(SKILLS / n["skill"]).model_config.get(
+                "provider", "anthropic")
+            key_cfg = PROVIDERS.get(provider, {})
+            has_key = bool(keystore.get_key(provider, key_cfg.get("key_env", "")))
             rows.append({**n, "cn_name": cn.cn_name, "artifact": art,
-                         "status": st, "status_cn": STATUS_CN.get(st, st)})
+                         "status": st, "status_cn": STATUS_CN.get(st, st),
+                         "provider": provider,
+                         "provider_label": key_cfg.get("label", provider),
+                         "has_key": has_key})
             if blocked is None and st != "approved":
                 blocked = rows[-1]
                 rows[-1]["is_block"] = True
@@ -132,11 +140,12 @@ def create_app() -> Flask:
             busy = any(r["job"] and r["job"]["state"] == "running" for r in rows)
 
         directors = discover_directors(SKILLS)
+        missing_providers = sorted({r["provider_label"] for r in rows
+                                    if not r["has_key"]})
         return render_template("pipeline.html", s=s, eps=eps, ep=ep,
                                rows=rows, blocked=blocked,
                                directors=directors, busy=busy,
-                               has_key=bool(__import__("os").environ.get(
-                                   "ANTHROPIC_API_KEY")))
+                               missing_providers=missing_providers)
 
     # ---------- 生成节点（界面直接跑，不用命令行） ----------
     @app.post("/series/<sid>/run/<contract>")
@@ -266,6 +275,29 @@ def create_app() -> Flask:
         base = "".join(ch for ch in name if ch.isalnum() and ch.isascii())
         return (base or "s") + "-" + hashlib.md5(
             name.encode()).hexdigest()[:5]
+
+    # ---------- 密钥设置：多厂商 API Key 全在网页上填，不用命令行 ----------
+    @app.route("/settings")
+    def settings():
+        st = keystore.status(PROVIDERS)
+        rows = [{"id": pid, **cfg, **st[pid]} for pid, cfg in PROVIDERS.items()]
+        return render_template("settings.html", rows=rows, nav="settings")
+
+    @app.post("/settings/<provider>/save")
+    def settings_save(provider):
+        if provider not in PROVIDERS:
+            abort(404)
+        value = (request.form.get("key") or "").strip()
+        if value:
+            keystore.set_key(provider, value)
+        return redirect(url_for("settings"))
+
+    @app.post("/settings/<provider>/clear")
+    def settings_clear(provider):
+        if provider not in PROVIDERS:
+            abort(404)
+        keystore.clear_key(provider)
+        return redirect(url_for("settings"))
 
     # ---------- 产物 ----------
     @app.route("/artifact/<aid>")

@@ -75,49 +75,34 @@ def ensure_flask():
 
 
 # ---------- 3. 密钥 ----------
-def ensure_key() -> str:
-    cfg = ROOT / "config"
-    cfg.mkdir(exist_ok=True)
-    f = cfg / "secrets.env"
+# 密钥不在这个黑窗口里问——填在网页的「密钥设置」页，支持任意厂商，
+# 改起来也不用重启程序。这里只做两件事：检查有没有配好、把老用户的
+# config/secrets.env 一次性搬进新的密钥库。
+def migrate_legacy_secrets_env():
+    f = ROOT / "config" / "secrets.env"
+    if not f.exists():
+        return
+    sys.path.insert(0, str(ROOT))
+    from core.gateway import keystore
+    from core.gateway.client import PROVIDERS
+    env_to_provider = {cfg["key_env"]: p for p, cfg in PROVIDERS.items()}
+    for line in f.read_text(encoding="utf-8").splitlines():
+        line = line.strip().removeprefix("export ").strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        provider = env_to_provider.get(k)
+        if provider and v and "xxx" not in v and not keystore.get_key(provider, k):
+            keystore.set_key(provider, v)
 
-    key = ""
-    if f.exists():
-        for line in f.read_text(encoding="utf-8").splitlines():
-            line = line.strip().removeprefix("export ").strip()
-            if line.startswith("ANTHROPIC_API_KEY="):
-                key = line.split("=", 1)[1].strip().strip('"').strip("'")
 
-    if key and key.startswith("sk-") and "xxx" not in key:
-        return key
-
-    say()
-    say("  还没有填 API 密钥。")
-    say("  去 console.anthropic.com 创建一把，复制过来粘贴在下面。")
-    say("  （粘贴后按回车。密钥只存在你自己电脑上。）")
-    say()
-    try:
-        entered = input("  密钥: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        entered = ""
-
-    if not entered:
-        say()
-        say("  没填也可以先进去看看界面，但不能生成内容。")
-        say("  以后想填，重新双击启动，或者直接编辑 config/secrets.env。")
-        say()
-        return ""
-
-    if not entered.startswith("sk-"):
-        say("  ⚠ 这串东西不像密钥（正常应该以 sk- 开头），先按你填的存下了。")
-
-    f.write_text(f'export ANTHROPIC_API_KEY={entered}\n'
-                 f'# export DEEPSEEK_API_KEY=\n', encoding="utf-8")
-    try:
-        os.chmod(f, 0o600)      # 只有自己能读
-    except OSError:
-        pass
-    say("  ✓ 已保存到 config/secrets.env，下次不用再填。")
-    return entered
+def has_any_key() -> bool:
+    sys.path.insert(0, str(ROOT))
+    from core.gateway import keystore
+    from core.gateway.client import PROVIDERS
+    return any(keystore.get_key(p, cfg["key_env"])
+               for p, cfg in PROVIDERS.items())
 
 
 # ---------- 4. 数据库 ----------
@@ -157,10 +142,9 @@ def main():
     say(f"      {ensure_flask()}")
 
     step(3, total, "检查 API 密钥…")
-    key = ensure_key()
-    if key:
-        os.environ["ANTHROPIC_API_KEY"] = key
-        say("      已就绪")
+    migrate_legacy_secrets_env()
+    has_key = has_any_key()
+    say("      已配置" if has_key else "      还没配置，进网页后点「密钥设置」填")
 
     step(4, total, "准备数据…")
     ensure_db()
@@ -183,8 +167,9 @@ def main():
     say(f"  网页地址: {url}")
     say("  浏览器会自动打开。没打开的话，手动复制上面这行地址。")
     say()
-    if not key:
-        say("  ⚠ 没有密钥，只能看不能生成。")
+    if not has_key:
+        say("  ⚠ 还没配置密钥，只能看不能生成。")
+        say("     进网页后点右上角「密钥设置」，填一把任意厂商的 API Key 就行。")
         say()
     say("  ★ 这个窗口不要关，关了网页就打不开了。")
     say("  用完了在这个窗口按 Ctrl + C 结束。")

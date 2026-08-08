@@ -17,10 +17,10 @@
 </div>
 {% endif %}
 
-{% if not has_key %}
-<div class="err"><strong>还没有填 API 密钥，暂时不能生成。</strong>
-在项目目录下把 <code>config/secrets.env.example</code> 复制成
-<code>config/secrets.env</code>，填入密钥，然后重启工作台。</div>
+{% if missing_providers %}
+<div class="err"><strong>还没有配置密钥：{{ missing_providers|join('、') }}。</strong>
+对应厂商的节点暂时不能生成。去
+<a href="{{ url_for('settings') }}">密钥设置</a>页填一下，不用碰命令行。</div>
 {% endif %}
 
 {% if busy %}
@@ -46,6 +46,7 @@
   </div>
   <div class="meta">
     <span>{{ r.skill }}</span>
+    <span>模型 {{ r.provider_label }}</span>
     {% if r.artifact %}
     <span>{{ r.artifact.skill_id }} v{{ r.artifact.skill_version }}</span>
     <span>{{ r.artifact.updated_at }}</span>
@@ -69,7 +70,10 @@
     <p style="margin:6px 0 0">{{ r.job.msg }}</p></div>
   {% endif %}
 
-  {% if has_key and not (r.job and r.job.state == 'running') %}
+  {% if not r.has_key %}
+  <div class="warn" style="margin-top:10px">缺 {{ r.provider_label }} 密钥，
+    去<a href="{{ url_for('settings') }}">密钥设置</a>页填一下。</div>
+  {% elif not (r.job and r.job.state == 'running') %}
   <form method="post"
         action="{{ url_for('run_node', sid=s.id, contract=r.contract) }}">
     <input type="hidden" name="ep" value="{{ ep or 1 }}">
