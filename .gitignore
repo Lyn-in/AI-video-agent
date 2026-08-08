@@ -7,3 +7,4 @@ config/secrets.json
 config/auth.json
 config/session.key
 projects/
+export/
