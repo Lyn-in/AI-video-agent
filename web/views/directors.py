@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, render_template, request
+from flask import (Blueprint, abort, redirect, render_template, request,
+                   url_for)
 
-from core.skillkit.director import discover_directors, recommend
-from web.deps import SKILLS
+from core.skillkit.director import (DIRECTOR_SECTIONS, Director,
+                                    discover_directors, recommend)
+from web.deps import SKILLS, form_text
 
-bp = Blueprint("directors", __name__)
+bp = Blueprint("directors", __name__, url_prefix="/directors")
 
 
-@bp.route("/directors")
+def load_director(did: str) -> Director:
+    """按 id 加载导演。路径必须落在 skills/directors/ 之内 —— 防目录穿越。"""
+    base = (SKILLS / "directors").resolve()
+    root = (base / did).resolve()
+    if not str(root).startswith(str(base) + "/") or not root.is_dir():
+        abort(404)
+    return Director.load(root)
+
+
+@bp.route("")
 def index():
     """
     导演库 + 匹配器。
@@ -27,3 +38,22 @@ def index():
         ds=[{"d": d, "errs": d.validate()} for d in ds],
         tags=tags,
         matches=recommend(ds, tags) if (tags and ds) else [])
+
+
+@bp.route("/<did>")
+def detail(did):
+    """
+    导演详情。原先导演库只有卡片，点不进去也改不了 ——
+    skill 能在界面上改 SKILL.md，导演却只能去翻文件，这是不对称的。
+    """
+    d = load_director(did)
+    return render_template("director_detail.html", d=d, errs=d.validate(),
+                           sections=DIRECTOR_SECTIONS)
+
+
+@bp.post("/<did>/save")
+def save(did):
+    d = load_director(did)
+    (d.root / "SKILL.md").write_text(form_text(request.form, "body"),
+                                    encoding="utf-8")
+    return redirect(url_for("directors.detail", did=did))

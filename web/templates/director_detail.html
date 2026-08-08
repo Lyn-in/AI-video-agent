@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% set zone='assets' %}{% set nav='directors.index' %}
+{% block title %}{{ d.name }}{% endblock %}
+{% block body %}
+<div class="context">
+  <div class="context-main">
+    <a href="{{ url_for('directors.index') }}" class="back">导演库</a>
+    <h1>{{ d.name }}</h1>
+    <span class="scope mono">{{ d.id }}</span>
+  </div>
+  <div class="meta"><span>{{ d.one_line }}</span></div>
+  {% if errs %}<div class="stamp pending">不合规范</div>
+  {% else %}<div class="stamp">规范通过</div>{% endif %}
+</div>
+
+{% if errs %}
+<div class="err"><strong>不符合导演包规范</strong>
+<ul>{% for e in errs %}<li>{{ e }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<div class="eyebrow">擅长题材</div>
+<div class="tags">{% for t in d.genre_tags %}<span class="tag">{{ t }}</span>{% endfor %}</div>
+<p class="note">匹配器靠这些标签推荐导演，改 manifest.json 才能调整。</p>
+
+<div class="eyebrow">风格约束（注入到每次调用）</div>
+<p class="note">导演走的是另一套规范，强制章节：{{ sections|join('、') }}。
+其中「禁忌清单」必须真有内容 —— 说不出「我绝不这么拍」的导演没有风格。
+改动会立刻影响之后所有用这位导演的生成。</p>
+<form method="post" action="{{ url_for('directors.save', did=d.id) }}">
+  {{ csrf_input() }}
+  <textarea name="body" rows="30">{{ d.doc }}</textarea>
+  <div class="actions"><button type="submit" class="primary">保存</button></div>
+</form>
+{% endblock %}
