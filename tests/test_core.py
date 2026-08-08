@@ -439,6 +439,107 @@ class TestNodeCardPolling(unittest.TestCase):
         self.assertNotIn("http-equiv=\"refresh\"", page)
 
 
+class TestReviewBlocks(unittest.TestCase):
+    """
+    审核门的分块编辑。
+
+    这里守的是「一处写坏不该把整次编辑作废」——
+    原先整份 payload 挤在一个 textarea 里，打错个逗号就 400 跳错误页，
+    刚敲的东西全没了。
+    """
+
+    def setUp(self):
+        try:
+            from web import review
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        self.review = review
+        self.c = contracts.get("story_file")
+        self.payload = {
+            "title": "认领", "logline": "父子在同一所学校",
+            "genre_tags": ["现实"], "emotional_core": "亲情",
+            "target_duration_sec": 180, "hook": "开场",
+            "synopsis": {"act1": "a", "act2": "b", "act3": "c"},
+            "characters_brief": [{"id": "c1", "name": "父", "role": "主角",
+                                  "one_line": "保洁"}],
+        }
+
+    def _submit(self, **over):
+        blocks = self.review.build_blocks(self.c, self.payload)
+        sub = {b.name: b.raw for b in blocks}
+        sub.update(over)
+        blocks = self.review.build_blocks(self.c, self.payload, sub)
+        return blocks, self.review.parse_blocks(self.c, blocks, sub)
+
+    def test_scalar_and_json_blocks(self):
+        kinds = {b.name: b.kind for b in
+                 self.review.build_blocks(self.c, self.payload)}
+        self.assertEqual(kinds["title"], "line")
+        self.assertEqual(kinds["target_duration_sec"], "line")
+        self.assertEqual(kinds["synopsis"], "json")
+        self.assertEqual(kinds["characters_brief"], "json")
+
+    def test_bad_json_in_one_block_keeps_the_others(self):
+        blocks, (payload, bad) = self._submit(title="改过的标题",
+                                              synopsis="{坏的")
+        self.assertTrue(bad)
+        by = {b.name: b for b in blocks}
+        self.assertTrue(by["synopsis"].errors, "坏 JSON 没报错")
+        self.assertFalse(by["title"].errors, "好字段不该被连坐")
+        self.assertEqual(by["title"].raw, "改过的标题", "编辑内容被冲掉了")
+        self.assertEqual(payload["title"], "改过的标题")
+
+    def test_non_numeric_in_int_field(self):
+        blocks, (_, bad) = self._submit(target_duration_sec="一百八")
+        self.assertTrue(bad)
+        by = {b.name: b for b in blocks}
+        self.assertTrue(by["target_duration_sec"].errors)
+
+    def test_clean_submit_round_trips(self):
+        _, (payload, bad) = self._submit()
+        self.assertFalse(bad)
+        self.assertEqual(payload["target_duration_sec"], 180)
+        self.assertEqual(payload["synopsis"], self.payload["synopsis"])
+        self.assertEqual(payload["characters_brief"],
+                         self.payload["characters_brief"])
+
+    def test_extra_fields_survive(self):
+        """契约允许 extra 字段自由扩展，编辑一轮不能把它们弄丢。"""
+        p = dict(self.payload, _note="我自己加的", _data={"k": 1})
+        blocks = self.review.build_blocks(self.c, p)
+        names = {b.name for b in blocks}
+        self.assertIn("_note", names)
+        self.assertIn("_data", names)
+
+    def test_errors_land_on_their_block(self):
+        blocks = self.review.build_blocks(self.c, self.payload)
+        rest = self.review.attach_errors(blocks, [
+            "payload.logline: logline 过长（建议 80 字内）",
+            "payload.characters_brief[0].name: 缺失必填字段",
+            "references_cited: 必须申报",          # 信封层，归不到字段
+        ])
+        by = {b.name: b for b in blocks}
+        self.assertEqual(len(by["logline"].errors), 1)
+        self.assertEqual(len(by["characters_brief"].errors), 1)
+        self.assertEqual(rest, ["references_cited: 必须申报"])
+
+    def test_prompt_pairs_found_nested(self):
+        """中英对照是给人扫读的 —— 校验器只查结构，查不出混排残句。"""
+        pairs = self.review.prompt_pairs({
+            "characters": [{
+                "reference_prompts": {
+                    "front_bust": {"zh": "正面半身", "en": "front bust"},
+                    "profile": {"zh": "侧脸", "en": "profile"},
+                }}]})
+        self.assertEqual(len(pairs), 2)
+        paths = {p["path"] for p in pairs}
+        self.assertIn("characters[0].reference_prompts.front_bust", paths)
+
+    def test_prompt_pairs_ignores_non_pairs(self):
+        self.assertEqual(self.review.prompt_pairs({"zh": "只有中文"}), [])
+        self.assertEqual(self.review.prompt_pairs({"a": 1, "b": "x"}), [])
+
+
 class TestScopeRoundTrip(unittest.TestCase):
     """scope_of 与 parse_scope 必须互为逆运算 —— 待办页靠它反查剧集和集号。"""
 

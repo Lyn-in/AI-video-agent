@@ -38,7 +38,7 @@ from core.skillkit.director import (                           # noqa: E402
 )
 from core.store.artifacts import ArtifactStore, make_envelope  # noqa: E402
 from core.store.db import Store                                # noqa: E402
-from core.pipeline import NODES, scope_of                      # noqa: E402
+from core.pipeline import NODES, node_for, scope_of            # noqa: E402
 from core.engine.gate import (                                 # noqa: E402
     make_diff, change_ratio, build_retry_brief, MAJOR_REVISION_THRESHOLD,
 )
@@ -752,8 +752,11 @@ def cmd_smoke(args):
     store.create_collection("s1", "_smoke", "第一季")
     store.create_series("demo", "s1", "冒烟剧集")
     store.create_episode("demo-ep1", "demo", 1, "第一集")
-    store.register_artifact(art, astore.rel(p), "episode", "demo")
-    rows = store.list_artifacts("demo")
+    # 走 scope_of 取口径：集级产物的 scope_id 是「剧集-集号」，
+    # 直接写剧集 id 会让两集的产物在索引里互相覆盖。
+    store.register_artifact(art, astore.rel(p),
+                            *scope_of(node_for("story_file"), "demo", 1))
+    rows = store.list_artifacts("demo-ep1")
     print(f"  {OK} 产物索引写入成功，当前 {len(rows)} 条")
 
     import shutil
@@ -955,11 +958,31 @@ def cmd_smoke(args):
             print(f"  {OK} 路由齐备（{len(routes)} 条）")
         else:
             fails.append(f"工作台缺少路由: {need - routes}")
-        for u in ["/", "/skills", "/directors"]:
+        for u in ["/", "/series", "/skills", "/directors", "/contracts"]:
             if c.get(u).status_code != 200:
                 fails.append(f"工作台 {u} 返回异常")
-        print(f"  {OK} 页面可访问：剧集总览 / Skill 管理 / 导演库")
-        print(f"  {OK} 审核门：读 → 判断 → 改（审阅版在编辑区之前）")
+        print(f"  {OK} 页面可访问：待办 / 剧集 / Skill / 导演 / 契约")
+
+        # 审核门：拿上面那份 _smoke 产物真打一次，别只打印一行漂亮话。
+        srow = store.latest_artifact("episode", "demo-ep1", "story_file")
+        if not srow:
+            fails.append("找不到 _smoke 产物，审核门未验证")
+        else:
+            body = c.get(f"/artifact/{srow['id']}").get_data(as_text=True)
+            order_ok = (body.find("引用申报") < body.find("产物内容")
+                        < body.find("直接编辑整份 JSON"))
+            if not order_ok:
+                fails.append("审核门顺序错乱：应当先读（引用申报）再改")
+            else:
+                print(f"  {OK} 审核门：读 → 判断 → 改（引用申报在编辑区之前）")
+            # 分块编辑：一处写坏不该把整次编辑作废
+            r = c.post(f"/artifact/{srow['id']}/save",
+                       data={"f_title": "改过的", "f_synopsis": "{坏的"})
+            b2 = r.get_data(as_text=True)
+            if r.status_code == 400 and "改过的" in b2 and "JSON 格式有误" in b2:
+                print(f"  {OK} 分块编辑：一处写坏只标那一块，其余编辑不丢")
+            else:
+                fails.append("审核门分块编辑未能保住其余字段的编辑内容")
     except ImportError:
         print(f"  {WARN} Flask 未安装，跳过工作台自检"
               f"（pip install flask --break-system-packages）")
