@@ -1,8 +1,10 @@
 {# 生成建议的工作区。跑起来之后自己轮询自己，跑完 hx-trigger 消失。 #}
 <div id="suggest-box"
+     {% if job and job.state == 'running' %}
      hx-get="{{ url_for('fragments.suggest', sid=sid) }}"
      hx-swap="outerHTML"
-     {% if job and job.state == 'running' %}hx-trigger="every 3s"{% endif %}>
+     hx-trigger="every 3s"
+     {% endif %}>
 
 {% if job and job.state == 'running' %}
   <div class="warn">正在读反馈、生成建议… 一次模型调用通常几十秒，可以先去忙别的。</div>
