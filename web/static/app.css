@@ -400,7 +400,8 @@ pre {
 /* ---------- 厂商设置 ---------- */
 .provider-fields { display: flex; flex-direction: column; gap: var(--sp-4); }
 .field-group { display: flex; flex-direction: column; gap: var(--sp-1); }
-.field-group label { font-size: var(--fs-sm); color: var(--muted); }
+.field-group label { font-size: var(--fs-sm); color: var(--muted);
+                     margin: 0; text-transform: none; letter-spacing: 0; }
 .field-hint { font-size: var(--fs-xs); color: var(--rule); }
 .field-group input:disabled {
   background: transparent; border-color: var(--rule);

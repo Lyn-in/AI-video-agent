@@ -55,8 +55,8 @@ def _entry(data: dict, provider: str) -> dict:
 
 
 def get_key(provider: str, key_env: str) -> str | None:
-    """取某厂商的密钥。环境变量优先，其次页面上填的密钥库。"""
-    return os.environ.get(key_env) or _entry(_read(), provider).get("key") or None
+    """取某厂商的密钥。页面上填的优先，环境变量兜底。"""
+    return _entry(_read(), provider).get("key") or os.environ.get(key_env) or None
 
 
 def get_provider_config(provider: str) -> dict:
@@ -73,10 +73,10 @@ def status(providers: dict) -> dict:
         entry = _entry(stored, p)
         env_val = os.environ.get(cfg["key_env"])
         file_val = entry.get("key")
-        if env_val:
-            src, val = "env", env_val
-        elif file_val:
+        if file_val:
             src, val = "file", file_val
+        elif env_val:
+            src, val = "env", env_val
         else:
             src, val = "none", None
         out[p] = {
@@ -85,6 +85,7 @@ def status(providers: dict) -> dict:
             "masked": _mask(val) if val else "",
             "base_url": entry.get("base_url", ""),
             "model": entry.get("model", ""),
+            "has_env": bool(env_val),
         }
     return out
 
