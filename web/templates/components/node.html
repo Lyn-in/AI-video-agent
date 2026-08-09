@@ -6,7 +6,7 @@
 
    自终止轮询：只有 running 状态才挂 hx-trigger，
    任务结束后换回来的片段不带它，轮询自然停下，不需要写一行 JS。 #}
-{% macro node_card(r, s, ep, directors) %}
+{% macro node_card(r, s, ep, directors, providers) %}
 <div class="sheet {{ 'done' if r.status == 'approved'
      else ('waiting' if r.waiting else ('blocked' if r.is_block else '')) }}"
      id="node-{{ r.contract }}"
@@ -73,6 +73,16 @@
           hx-swap="outerHTML">
     {{ csrf_input() }}
       <input type="hidden" name="ep" value="{{ ep or 1 }}">
+
+      <label>模型</label>
+      <select name="provider">
+        {% for p in providers %}
+        <option value="{{ p.id }}" {{ 'selected' if p.id == r.provider }}>
+          {{ p.label }}{{ '' if p.has_key else ' ⚠ 未配密钥' }}
+        </option>
+        {% endfor %}
+      </select>
+
       {% if r.contract == 'story_file' %}
         <label>想拍什么（一句话就行）</label>
         <textarea name="brief" rows="3"

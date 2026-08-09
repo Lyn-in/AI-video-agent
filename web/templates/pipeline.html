@@ -17,6 +17,10 @@
       <a href="{{ url_for('series.pipeline', sid=s.id, ep=e.episode_no, step=current.contract) }}"
          class="{{ 'on' if e.episode_no == ep }}">第 {{ e.episode_no }} 集</a>
       {% endfor %}
+      <form method="post" action="{{ url_for('series.add_episode', sid=s.id) }}" class="inline-form">
+        {{ csrf_input() }}
+        <button type="submit" title="添加一集">+</button>
+      </form>
       {% if current.level == 'series' %}<span class="epnote">本步全集共用</span>{% endif %}
     </div>
     {% endif %}
@@ -24,12 +28,41 @@
   {{ ui.meta([s.id, '导演 ' ~ s.director_id if s.director_id else '未指定导演']) }}
 </div>
 
+{# 剧集设置：修改名字、题材、导演 #}
+<details class="mt-1">
+  <summary>编辑剧集设置</summary>
+  <form method="post" action="{{ url_for('series.edit_series', sid=s.id) }}" class="mt-3">
+    {{ csrf_input() }}
+    <div class="field-group">
+      <label for="edit-name">剧集名字</label>
+      <input type="text" id="edit-name" name="name" value="{{ s.name }}">
+    </div>
+    <div class="field-group">
+      <label for="edit-genre">题材（多个用逗号隔开）</label>
+      <input type="text" id="edit-genre" name="genre" value="{{ s.genre_tags|join('、') }}">
+    </div>
+    <div class="field-group">
+      <label for="edit-director">导演</label>
+      <select id="edit-director" name="director">
+        <option value="">不指定</option>
+        {% for d in directors %}
+        <option value="{{ d.id }}" {{ 'selected' if d.id == s.director_id }}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="actions">
+      <button type="submit">保存设置</button>
+    </div>
+  </form>
+</details>
+
 {{ st.stepper(rows, s, ep, current) }}
 
 {% if missing_providers %}
 <div class="err"><strong>还没有配置密钥：{{ missing_providers|join('、') }}。</strong>
 对应厂商的节点暂时不能生成。去
-<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下，不用碰命令行。</div>
+<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下，不用碰命令行。
+也可以在下面的「模型」下拉里换一个已配密钥的厂商。</div>
 {% endif %}
 
 {% if blocked and blocked.contract != current.contract %}
@@ -47,6 +80,6 @@
 {% if current.waiting %}
 <div class="warn">这一步还没轮到 —— 先把上游做通过。</div>
 {% endif %}
-{{ nc.node_card(current, s, ep, directors) }}
+{{ nc.node_card(current, s, ep, directors, providers) }}
 
 {% endblock %}

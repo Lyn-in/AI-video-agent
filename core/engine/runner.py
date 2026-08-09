@@ -111,7 +111,8 @@ def run_node(*, pkg, store, astore, series_id: str,
              input_ids: list[str] | None = None,
              gateway: ModelGateway | None = None,
              log_path: Path | None = None,
-             dry_run: bool = False, force: bool = False) -> RunResult:
+             dry_run: bool = False, force: bool = False,
+             model_override: dict | None = None) -> RunResult:
     """
     跑一个节点：拼提示词 → 调模型 → 校验契约 → 落盘 → 登记。
 
@@ -142,9 +143,10 @@ def run_node(*, pkg, store, astore, series_id: str,
     p = build_prompt(pkg, brief, inputs, tags, director)
 
     gw = gateway or ModelGateway(log_path=log_path, dry_run=dry_run)
+    mc = {**pkg.model_config, **(model_override or {})}
     try:
         res = gw.call(system=p.system, user=p.user,
-                      model_config=pkg.model_config,
+                      model_config=mc,
                       skill_id=pkg.id, tag=pkg.output_contract)
         payload = res.json_payload()
     except GatewayError as e:

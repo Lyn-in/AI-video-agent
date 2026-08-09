@@ -5,10 +5,21 @@
 <div class="eyebrow">新建剧集</div>
 <form method="post" action="{{ url_for('series.series_new') }}">
     {{ csrf_input() }}
-  <label>剧集名字</label>
-  <input type="text" name="name" placeholder="比如：认领" required>
-  <label>题材（可留空，多个用逗号隔开）</label>
-  <input type="text" name="genre" placeholder="比如：现实, 催泪">
+  <div class="field-group">
+    <label for="new-name">剧集名字</label>
+    <input type="text" id="new-name" name="name" placeholder="比如：认领" required>
+  </div>
+  <div class="field-group">
+    <label for="new-genre">题材（可留空，多个用逗号隔开）</label>
+    <input type="text" id="new-genre" name="genre" placeholder="比如：现实, 催泪">
+  </div>
+  <div class="field-group">
+    <label for="new-director">导演（可留空）</label>
+    <select id="new-director" name="director">
+      <option value="">不指定</option>
+      {% for d in directors %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+    </select>
+  </div>
   <div class="actions"><button type="submit" class="primary">建好，开始做</button></div>
 </form>
 
