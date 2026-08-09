@@ -245,6 +245,7 @@ h3 { font-family: var(--serif); font-size: 15px; margin: 22px 0 8px; }
   opacity: .82;
   line-height: 1.2; text-align: center;
   animation: stamp-in .18s ease-out;
+  pointer-events: none;
 }
 .stamp small {
   display: block; font-family: var(--mono); font-size: 9px;
@@ -297,7 +298,7 @@ input:focus-visible, select:focus-visible {
 textarea, input[type=text], input[type=password] {
   width: 100%; font-family: var(--mono); font-size: var(--fs-base);
   line-height: 1.6;
-  background: var(--paper-hi); color: var(--ink);
+  background: #fff; color: var(--ink);
   border: 1px solid var(--rule); border-radius: 0; padding: 12px;
 }
 /* select 原先没有规则，pipeline.html 只好内联样式 */
@@ -400,7 +401,8 @@ pre {
 /* ---------- 厂商设置 ---------- */
 .provider-fields { display: flex; flex-direction: column; gap: var(--sp-4); }
 .field-group { display: flex; flex-direction: column; gap: var(--sp-1); }
-.field-group label { font-size: var(--fs-sm); color: var(--muted); }
+.field-group label { font-size: var(--fs-sm); color: var(--muted);
+                     margin: 0; text-transform: none; letter-spacing: 0; }
 .field-hint { font-size: var(--fs-xs); color: var(--rule); }
 .field-group input:disabled {
   background: transparent; border-color: var(--rule);

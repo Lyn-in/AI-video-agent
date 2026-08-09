@@ -14,7 +14,6 @@
   </div>
   <div class="meta">
     <span>{{ r.hint }}</span>
-    {% if r.source == 'env' %}<span>密钥来自环境变量 {{ r.key_env }}</span>{% endif %}
   </div>
 
   {% if r.configured %}
@@ -23,29 +22,31 @@
     <div class="stamp none">未配置</div>
   {% endif %}
 
-  {% if r.source != 'env' %}
   <form method="post" action="{{ url_for('settings.save', provider=r.id) }}" class="mt-4">
     {{ csrf_input() }}
     <div class="provider-fields">
       <div class="field-group">
-        <label>接口地址</label>
-        <input type="text" name="base_url"
+        <label for="base_url_{{ r.id }}">接口地址</label>
+        <input type="text" id="base_url_{{ r.id }}" name="base_url"
                value="{{ r.base_url }}"
                placeholder="{{ r.url }}">
         <span class="field-hint">留空使用默认地址</span>
       </div>
       <div class="field-group">
-        <label>模型</label>
-        <input type="text" name="model"
+        <label for="model_{{ r.id }}">模型</label>
+        <input type="text" id="model_{{ r.id }}" name="model"
                value="{{ r.model }}"
                placeholder="{{ r.default_model }}">
         <span class="field-hint">留空使用默认模型</span>
       </div>
       <div class="field-group">
-        <label>{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
-        <input type="password" name="key"
+        <label for="key_{{ r.id }}">{{ '换一把新密钥' if r.configured else 'API 密钥' }}</label>
+        <input type="password" id="key_{{ r.id }}" name="key"
                placeholder="{{ r.masked or ('粘贴 ' + r.label + ' 的密钥') }}"
                autocomplete="off">
+        {% if r.has_env %}
+        <span class="field-hint">检测到环境变量 {{ r.key_env }}，页面上填的值会覆盖它</span>
+        {% endif %}
       </div>
     </div>
     <div class="actions">
@@ -56,23 +57,6 @@
       {% endif %}
     </div>
   </form>
-  {% else %}
-  <div class="provider-fields mt-4">
-    <div class="field-group">
-      <label>接口地址</label>
-      <input type="text" disabled value="{{ r.base_url or r.url }}">
-    </div>
-    <div class="field-group">
-      <label>模型</label>
-      <input type="text" disabled value="{{ r.model or r.default_model }}">
-    </div>
-    <div class="field-group">
-      <label>API 密钥</label>
-      <input type="text" disabled value="{{ r.masked }}">
-      <span class="field-hint">密钥来自环境变量，页面上改不了</span>
-    </div>
-  </div>
-  {% endif %}
 </div>
 {% endfor %}
 
@@ -98,8 +82,10 @@
   <div class="stamp none">未上锁</div>
   <form method="post" action="{{ url_for('settings.set_password') }}">
     {{ csrf_input() }}
-    <label>设一个口令（至少 6 位）</label>
-    <input type="password" name="password" minlength="6" autocomplete="new-password">
+    <div class="field-group">
+      <label for="password">设一个口令（至少 6 位）</label>
+      <input type="password" id="password" name="password" minlength="6" autocomplete="new-password">
+    </div>
     <div class="actions"><button type="submit">设置口令</button></div>
   </form>
 </div>
