@@ -39,6 +39,16 @@ def _all_series() -> list[dict]:
     return rows
 
 
+def _providers_info() -> list[dict]:
+    """所有厂商的 id、名称、是否有密钥——给模型选择下拉用。"""
+    return [
+        {"id": pid, "label": cfg["label"],
+         "default_model": cfg["default_model"],
+         "has_key": bool(keystore.get_key(pid, cfg["key_env"]))}
+        for pid, cfg in PROVIDERS.items()
+    ]
+
+
 @bp.route("/")
 def inbox():
     """
@@ -75,7 +85,8 @@ def inbox():
 
 @bp.route("/series")
 def index():
-    return render_template("series_list.html", series=_all_series())
+    return render_template("series_list.html", series=_all_series(),
+                           directors=discover_directors(SKILLS))
 
 
 def load_series(sid: str) -> tuple[dict, list[dict]]:
@@ -117,8 +128,6 @@ def node_rows(sid: str, ep: int | None) -> list[dict]:
             blocked = rows[-1]
             rows[-1]["is_block"] = True
 
-    # 卡点之后的节点不是「被审核卡住」，只是还没轮到。
-    # 视觉上必须区分，否则一眼看过去五个节点都在报警。
     seen_block = False
     for r in rows:
         r["waiting"] = seen_block
@@ -136,14 +145,13 @@ def pipeline(sid):
     rows = node_rows(sid, ep)
     blocked = next((r for r in rows if r.get("is_block")), None)
 
-    # 默认停在卡点那一步 —— 打开页面就是「该干的那件事」，
-    # 和待办首页同一个思路，只是范围收到这一部剧。
     want = request.args.get("step")
     current = (next((r for r in rows if r["contract"] == want), None)
                or blocked or rows[-1])
     return render_template(
         "pipeline.html", s=s, eps=eps, ep=ep, rows=rows, blocked=blocked,
         current=current, directors=discover_directors(SKILLS),
+        providers=_providers_info(),
         missing_providers=sorted({r["provider_label"] for r in rows
                                   if not r["has_key"]}))
 
@@ -165,6 +173,30 @@ def series_new():
     return redirect(url_for("series.pipeline", sid=sid, ep=1))
 
 
+@bp.post("/series/<sid>/edit")
+def edit_series(sid):
+    s, _ = load_series(sid)
+    name = (request.form.get("name") or "").strip()
+    genre = [x.strip() for x in (request.form.get("genre") or "")
+             .replace("，", ",").split(",") if x.strip()]
+    director = request.form.get("director") or None
+    with store.conn() as c:
+        if name:
+            c.execute("UPDATE series SET name=? WHERE id=?", (name, sid))
+        c.execute("UPDATE series SET genre_tags=?, director_id=? WHERE id=?",
+                  (json.dumps(genre, ensure_ascii=False), director, sid))
+    return redirect(url_for("series.pipeline", sid=sid))
+
+
+@bp.post("/series/<sid>/add-episode")
+def add_episode(sid):
+    s, eps = load_series(sid)
+    next_no = max(e["episode_no"] for e in eps) + 1 if eps else 1
+    title = (request.form.get("title") or "").strip() or f"第{next_no}集"
+    store.create_episode(f"{sid}-ep{next_no}", sid, next_no, title)
+    return redirect(url_for("series.pipeline", sid=sid, ep=next_no))
+
+
 # ---------- 生成节点（界面直接跑，不用命令行） ----------
 
 @bp.post("/series/<sid>/run/<contract>")
@@ -182,6 +214,7 @@ def start_run(sid, contract):
                       (request.form.get("genre") or "").replace("，", ",")
                       .split(",") if x.strip()],
             "director": request.form.get("director") or None,
+            "provider": request.form.get("provider") or None,
             "ep": ep,
             "dry_run": bool(request.form.get("dry_run")),
         }
@@ -190,7 +223,6 @@ def start_run(sid, contract):
             args=(current_app._get_current_object(), key, sid, node, opts),
             daemon=True).start()
 
-    # HTMX 就地换掉这张卡（它随即开始自轮询）；没有 HTMX 就退回整页跳转。
     if request.headers.get("HX-Request"):
         return render_node(sid, contract, ep)
     return redirect(url_for("series.pipeline", sid=sid, ep=ep))
@@ -204,10 +236,9 @@ def render_node(sid: str, contract: str, ep: int | None):
     if row is None:
         abort(404)
     html = render_template("fragments/node.html", r=row, s=s, ep=ep,
-                           directors=discover_directors(SKILLS))
+                           directors=discover_directors(SKILLS),
+                           providers=_providers_info())
     resp = make_response(html)
-    # 任务收尾的这一次（也是轮询的最后一次）通知上方的进度条刷新，
-    # 否则卡片变了、进度条上的标记还停在「生成中」。
     if row["job"] and row["job"]["state"] in ("done", "error"):
         resp.headers["HX-Trigger"] = "nodeSettled"
     return resp
@@ -228,12 +259,9 @@ def _run_job(app, key, sid, node, opts):
         _do_run(sid, node, opts)
         jobs.finish(key)
     except RunError as e:
-        # 预期内的失败（缺上游、契约不过、没密钥）：消息本身就是给人看的，
-        # 不需要堆栈。
         app.logger.info("生成被拒 %s: %s", key, e)
         jobs.fail(key, str(e))
     except Exception as e:                                    # noqa: BLE001
-        # 意料之外的：留全量堆栈，否则线程里出的错会变成「没反应」。
         app.logger.error("生成失败 %s: %s", key, traceback.format_exc())
         jobs.fail(key, f"内部错误：{e}")
 
@@ -247,6 +275,14 @@ def _do_run(sid, node, opts):
         crow = c.execute("SELECT account_id FROM collections WHERE id=?",
                          (acc,)).fetchone()
     director_id = opts.get("director") or (srow["director_id"] if srow else None)
+
+    model_override = {}
+    if opts.get("provider"):
+        pid = opts["provider"]
+        model_override["provider"] = pid
+        if pid in PROVIDERS:
+            model_override["model"] = PROVIDERS[pid]["default_model"]
+
     run_node(
         pkg=pkg, store=store, astore=astore,
         series_id=sid, episode_no=opts.get("ep"),
@@ -254,4 +290,5 @@ def _do_run(sid, node, opts):
         brief=opts.get("brief", ""), genre_tags=opts.get("genre"),
         director=resolve_director(SKILLS, director_id, pkg),
         log_path=CALL_LOG, dry_run=opts.get("dry_run", False),
+        model_override=model_override,
     )

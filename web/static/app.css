@@ -409,6 +409,16 @@ pre {
   color: var(--muted); cursor: not-allowed;
 }
 
+/* ---------- 内联表单（如添加集数的 + 按钮） ---------- */
+.inline-form { display: inline; margin: 0; }
+.inline-form button {
+  font-family: var(--mono); font-size: var(--fs-base);
+  padding: 2px 10px; border: 1px solid var(--rule);
+  background: var(--paper-hi); color: var(--ink);
+  line-height: 1.4;
+}
+.inline-form button:hover { background: var(--ink); color: var(--paper-hi); }
+
 /* ---------- 构建信息 ---------- */
 .build-info {
   text-align: center; padding: var(--sp-3);
