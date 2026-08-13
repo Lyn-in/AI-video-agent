@@ -7,6 +7,7 @@ from flask import Blueprint, abort, redirect, render_template, request, url_for
 from core.gateway import keystore
 from core.gateway.client import PROVIDERS
 from web import security
+from web.deps import render_error
 
 bp = Blueprint("settings", __name__, url_prefix="/settings")
 
@@ -23,7 +24,9 @@ def index():
 def set_password():
     pw = (request.form.get("password") or "").strip()
     if len(pw) < 6:
-        abort(400)
+        # abort(400) 在这里等于「点了保存，页面报错，不说为什么」。
+        # 长度要求是我们自己定的，就得自己讲清楚。
+        return render_error("口令至少 6 位，换一个再试。"), 400
     security.set_password(pw)
     return redirect(url_for("settings.index"))
 

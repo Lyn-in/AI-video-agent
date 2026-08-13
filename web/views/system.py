@@ -62,12 +62,27 @@ def run_check():
     跑一遍 avctl smoke。走子进程而不是直接调函数 ——
     自检会往库里写 _smoke 数据、还会跑一整套测试，
     塞在工作台进程里跑容易互相干扰。
+
+    timeout 收到 120 秒并接住超时：原先是 300 秒，而开发服务器是单线程的，
+    自检期间整个工作台都打不开 —— 用户以为把它点死了，去关窗口重启。
+    自检正常十几秒就完，跑到两分钟本身就说明有问题，该报出来而不是继续等。
     """
-    r = subprocess.run([sys.executable, str(ROOT / "cli" / "avctl.py"), "smoke"],
-                       capture_output=True, text=True, timeout=300)
+    cmd = [sys.executable, str(ROOT / "cli" / "avctl.py"), "smoke"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired as e:
+        partial = (e.stdout or "") + (e.stderr or "")
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", "replace")
+        return render_template(
+            "check.html", ok=False,
+            output=partial + "\n\n[自检超过 120 秒没有结束，已中止。]"), 200
     return render_template("check.html",
                            output=(r.stdout or "") + (r.stderr or ""),
                            ok=r.returncode == 0)
+
+
+RECENT = 60          # 明细表只展示最近这些条
 
 
 @bp.route("/cost")
@@ -75,27 +90,40 @@ def cost_page():
     """
     调用与成本。calls.jsonl 一直在记 token 和耗时，但从来没有视图。
     这里只做可见，不做限额 —— 成本护栏是另一件事。
+
+    逐行读而不是 read_text().splitlines()：这个文件只增不减，
+    每次调模型加一行。整份读进内存意味着用得越久这一页越慢，
+    最后在某次点击时把工作台撑爆 —— 而它只是个只读的统计页。
     """
     rows, totals = [], {"calls": 0, "in": 0, "out": 0, "sec": 0.0}
-    if CALL_LOG.exists():
-        for line in CALL_LOG.read_text(encoding="utf-8").splitlines():
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            rows.append(r)
-            totals["calls"] += 1
-            totals["in"] += r.get("in_tokens", 0)
-            totals["out"] += r.get("out_tokens", 0)
-            totals["sec"] += r.get("elapsed", 0) or 0
     by_skill = {}
-    for r in rows:
-        s = by_skill.setdefault(r.get("skill") or "-",
-                                {"calls": 0, "in": 0, "out": 0})
-        s["calls"] += 1
-        s["in"] += r.get("in_tokens", 0)
-        s["out"] += r.get("out_tokens", 0)
-    return render_template("cost.html", rows=rows[-60:][::-1], totals=totals,
+    if CALL_LOG.exists():
+        with CALL_LOG.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(r, dict):
+                    continue
+                totals["calls"] += 1
+                totals["in"] += r.get("in_tokens", 0) or 0
+                totals["out"] += r.get("out_tokens", 0) or 0
+                totals["sec"] += r.get("elapsed", 0) or 0
+                s = by_skill.setdefault(r.get("skill") or "-",
+                                        {"calls": 0, "in": 0, "out": 0})
+                s["calls"] += 1
+                s["in"] += r.get("in_tokens", 0) or 0
+                s["out"] += r.get("out_tokens", 0) or 0
+                # 只留住要展示的那一小段，读过的行随即丢掉。
+                rows.append(r)
+                if len(rows) > RECENT:
+                    del rows[0]
+    return render_template("cost.html", rows=rows[::-1], totals=totals,
                            by_skill=sorted(by_skill.items(),
                                            key=lambda kv: -kv[1]["in"]),
                            log=CALL_LOG)
+

@@ -113,12 +113,25 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT
 );
 
+-- 后台任务。原先是进程内的字典，进程一重启正在跑的任务就凭空消失，
+-- 页面回到「未开始」，用户不知道刚才那次到底跑没跑、钱花没花。
+-- 落库之后重启至少能看见「中断」这个事实。
+CREATE TABLE IF NOT EXISTS jobs (
+    key        TEXT PRIMARY KEY,  -- JSON 数组，见 web/jobs.py 的 key_for/key_of
+    kind       TEXT NOT NULL,     -- node | suggest | check
+    state      TEXT NOT NULL,     -- running | done | error
+    msg        TEXT,
+    started_at TEXT DEFAULT (datetime('now','localtime')),
+    ended_at   TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_artifacts_scope
     ON artifacts(scope_type, scope_id, contract);
+CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind, state);
 """
 
-# 当前 schema 版本。每加一次迁移 +1，并在 MIGRATIONS 里补一条。
-SCHEMA_VERSION = 1
+# 当前 schema 版本。每加一次迁移 +1，并在 migrate() 里补一段。
+SCHEMA_VERSION = 2
 
 
 class Store:
@@ -160,6 +173,8 @@ class Store:
                 return
             if cur < 1:
                 _migrate_1_episode_scope(c)
+            # v2 只是加了 jobs 表，建表语句在 SCHEMA 里（IF NOT EXISTS），
+            # 上面的 executescript 已经建好，这里没有数据要搬。
             c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
                       ("schema_version", str(SCHEMA_VERSION)))
 

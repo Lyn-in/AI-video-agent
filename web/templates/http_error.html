@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% set zone='make' %}{% set nav='series.inbox' %}
+{% block title %}{{ code }} · {{ title }}{% endblock %}
+{% block body %}
+{# 没有这一页的时候，abort(404) 会掉进 Werkzeug 自带的错误页：
+   开了 debug 就把源码和交互式控制台端到浏览器上，关了 debug 则是一张
+   没有导航、没法往回走的白页。两种都不该让人看见。 #}
+<div class="eyebrow">{{ code }}</div>
+<div class="{{ 'err' if code >= 500 else 'warn' }}">
+  <strong>{{ title }}</strong>
+  <p class="tight">{{ hint }}</p>
+</div>
+<div class="actions">
+  <a class="btn" href="{{ url_for('series.inbox') }}">回待办</a>
+  <a class="btn" href="{{ url_for('series.index') }}">看剧集</a>
+</div>
+{% endblock %}

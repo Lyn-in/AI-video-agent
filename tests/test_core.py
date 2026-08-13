@@ -287,6 +287,53 @@ class TestSecurityBoundaries(unittest.TestCase):
         self.assertIn("/artifact/<aid>/save",
                       {str(r.rule) for r in app.url_map.iter_rules()})
 
+    def test_server_error_page_leaks_nothing(self):
+        """
+        500 页会被端到浏览器上，异常文本里常带路径和参数，不能回显。
+        没有这个 handler 的话，Werkzeug 默认页在 debug 下还给交互式控制台。
+        """
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        app = create_app()
+        app.config["PROPAGATE_EXCEPTIONS"] = False
+        secret = "kBw9-secret-token-in-message"
+
+        @app.route("/__boom_test")
+        def _boom():
+            raise RuntimeError(secret)
+
+        app.logger.disabled = True
+        try:
+            r = app.test_client().get("/__boom_test")
+        finally:
+            app.logger.disabled = False
+        self.assertEqual(r.status_code, 500)
+        body = r.data.decode()
+        self.assertNotIn(secret, body, "异常正文被回显到了浏览器")
+        self.assertNotIn("Traceback", body)
+
+    def test_bad_form_input_is_not_a_crash(self):
+        """
+        表单值一律是不可信输入。这些原先会抛未捕获异常 —— 也就是 500，
+        而 500 在没有 handler 的时候是一页 Werkzeug 堆栈。
+        """
+        try:
+            from web.app import create_app
+        except ImportError:
+            self.skipTest("Flask 未安装")
+        c = create_app().test_client()
+        c.get("/skills")
+        with c.session_transaction() as s:
+            token = s.get("_csrf", "")
+        for bad in ["../etc", "abc", "-1", "99999", ""]:
+            with self.subTest(pick=bad):
+                r = c.post("/skills/writer/proposal/apply",
+                           data={"pick": bad, "_csrf": token})
+                self.assertNotEqual(r.status_code, 500,
+                                    f"pick={bad!r} 把服务端搞崩了")
+
 
 class TestPipelineScope(unittest.TestCase):
     """
@@ -710,6 +757,47 @@ class TestCliGapClosed(unittest.TestCase):
         jobs.fail(jobs.key_of("suggest", "writer"), "建议生成失败")
         self.assertEqual(jobs.failures({}), [],
                          "非节点任务混进了流水线失败列表")
+        jobs.clear()
+
+    def test_double_submit_gets_one_job(self):
+        """
+        连点两次生成只能起一个任务。
+
+        claim 如果先查后写，两次快速点击会双双看到「没在跑」，
+        于是两个线程跑同一个节点、抢着往同一个路径落盘，还花两遍钱。
+        """
+        from core.pipeline import NODES
+        from web import jobs
+        jobs.clear()
+        k = jobs.key_for(NODES[0], "dup", 1)
+        self.assertTrue(jobs.claim(k))
+        self.assertFalse(jobs.claim(k), "重复提交没有被挡住")
+        jobs.finish(k)
+        self.assertTrue(jobs.claim(k), "任务结束后应当可以再跑一次")
+        jobs.clear()
+
+    def test_job_survives_restart_and_is_swept(self):
+        """
+        任务状态必须落库。原先是进程内字典：重启后页面回到「未开始」，
+        用户不知道刚才那次跑没跑、token 花没花，只能再点一次 —— 花两遍钱。
+        而残留的 running 没人推进，卡片会永远转下去，所以启动时要扫掉。
+        """
+        from core.pipeline import NODES
+        from web import jobs
+        from web.deps import store
+        jobs.clear()
+        k = jobs.key_for(NODES[0], "restart", 1)
+        jobs.claim(k)
+
+        # 换一条连接读 —— 等价于新进程起来后读到的东西。
+        with store.conn() as c:
+            row = c.execute("SELECT state FROM jobs WHERE state='running'"
+                            ).fetchone()
+        self.assertIsNotNone(row, "任务没有落库，重启就丢")
+
+        self.assertEqual(jobs.sweep_stale(), 1)
+        self.assertEqual(jobs.get(k)["state"], "error",
+                         "上次进程留下的 running 没被判死，卡片会一直转")
         jobs.clear()
 
 

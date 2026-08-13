@@ -13,7 +13,6 @@ from core.engine.flywheel import (ApplyError, MIN_SAMPLES, SuggestError,
                                   analyze, apply_suggestion, generate_proposal,
                                   list_proposals, load_feedback,
                                   ref_governance)
-from core.skillkit.director import discover_directors
 from core.skillkit.package import SkillPackage, discover
 from web import jobs
 from web.deps import (CALL_LOG, SKILLS, form_text, load_skill,
@@ -31,8 +30,7 @@ def index():
                      "genres": [g.title for g in p.genres],
                      "refs": len(p.refs),
                      "feedback": len(list(fb.glob("*.md"))) if fb.is_dir() else 0})
-    return render_template("skills.html", pkgs=pkgs,
-                           directors=discover_directors(SKILLS))
+    return render_template("skills.html", pkgs=pkgs)
 
 
 @bp.route("/<sid>")
@@ -64,9 +62,13 @@ def proposal_apply(sid):
                              encoding="utf-8")
         return redirect(url_for("skills.detail", sid=sid))
 
-    picks = [int(x) for x in request.form.getlist("pick")]
+    # 表单值一律当不可信输入：直接 int() 的话，一个非数字的 pick
+    # 就是一次未捕获的 ValueError，用户看到的是 500 而不是「选一条」。
+    picks = [int(x) for x in request.form.getlist("pick") if x.isdigit()]
     if not picks:
         return render_error("至少选一条建议合入，或点驳回。"), 400
+    if any(i < 1 or i > len(prop.suggestions) for i in picks):
+        return render_error("选中的建议不存在，页面可能过期了，刷新再试。"), 400
 
     body = p.skill_md
     try:
@@ -87,8 +89,9 @@ def proposal_apply(sid):
             (p.root / "SKILL.md").write_text(vs[-1].read_text(encoding="utf-8"),
                                              encoding="utf-8")
         return render_template(
-            "errors.html", aid=None,
-            errs=["合入后 SKILL.md 不再符合规范，已自动回滚："] + errs), 400
+            "errors.html", aid=None, eyebrow="已回滚",
+            lead="合入后 SKILL.md 不再符合规范，已自动退回上一版。",
+            errs=errs), 400
 
     prop.data["_status"] = "applied"
     prop.data["_applied"] = picks

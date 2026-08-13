@@ -1,8 +1,12 @@
 {% extends "base.html" %}{% set zone='make' %}{% set nav='series.inbox' %}
+{% block title %}{{ lead or '没能完成' }}{% endblock %}
 {% block body %}
-<div class="eyebrow">未保存</div>
+{# 这页被多处复用，所以文案必须由调用方给。
+   原先正文写死成「修改没有通过契约校验，产物保持原样」，
+   于是「剧集没起名字」「口令太短」这些场景全都在说产物的事。 #}
+<div class="eyebrow">{{ eyebrow or '没能完成' }}</div>
 <div class="err">
-  <strong>修改没有通过契约校验，产物保持原样。</strong>
+  <strong>{{ lead or '这次操作没有生效。' }}</strong>
   <ul>{% for e in errs %}<li>{{ e }}</li>{% endfor %}</ul>
 </div>
 {% if aid %}<p><a href="{{ url_for('artifacts.artifact', aid=aid) }}">返回继续改</a></p>{% endif %}

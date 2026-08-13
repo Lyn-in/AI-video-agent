@@ -27,7 +27,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from web import security                                      # noqa: E402
+from web import jobs, security                                # noqa: E402
 from web.deps import store                                    # noqa: E402
 from web.nav import ZONES, zone_of                            # noqa: E402
 from web.views import (                                       # noqa: E402
@@ -94,7 +94,44 @@ def create_app() -> Flask:
     def shortid(v):
         return (v or "")[-6:]
 
+    _register_error_pages(app)
+
+    # 上一次进程留下的「生成中」在库里是死的，没有线程会去推进它。
+    # 不扫掉的话，重启后那张卡会永远转下去。
+    stale = jobs.sweep_stale()
+    if stale:
+        app.logger.info("清理了 %d 个上次中断的任务", stale)
+
     return app
+
+
+def _register_error_pages(app: Flask) -> None:
+    """
+    统一的错误页。缺了它，11 处 abort() 全部落到 Werkzeug 默认页上。
+
+    500 只讲「出错了」不回显异常：这页会被端到浏览器上，
+    堆栈里常带路径和参数。真正的细节进日志。
+    """
+    pages = {
+        404: ("找不到这个东西", "地址可能敲错了，或者它已经被删掉。"),
+        403: ("没有权限", "先回首页，必要时重新登录。"),
+        400: ("请求不合法", "多半是表单少填了必填项，返回上一页补齐再试。"),
+    }
+
+    def render(code, title, hint):
+        return render_template("http_error.html", code=code,
+                               title=title, hint=hint), code
+
+    for code, (title, hint) in pages.items():
+        app.register_error_handler(
+            code, lambda e, c=code, t=title, h=hint: render(c, t, h))
+
+    @app.errorhandler(500)
+    def internal(e):
+        app.logger.error("未捕获的异常", exc_info=True)
+        return render(500, "工作台自己出错了",
+                      "这一步没有改动任何数据。详细信息在启动工作台的那个"
+                      "终端窗口里，反馈问题时请一并附上。")
 
 
 if __name__ == "__main__":
