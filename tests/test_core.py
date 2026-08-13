@@ -960,6 +960,54 @@ def _url(client, endpoint):
     return client.application.url_map.bind("localhost").build(endpoint)
 
 
+class TestTextContrast(unittest.TestCase):
+    """
+    正文级的字必须看得清。
+
+    这套配色只有一个 --muted，被同时用在装饰性小字和表单标签上，
+    而它在纸面上只有 3.7:1 —— 低于 WCAG AA 的 4.5:1。
+    更糟的是 --rule（画分隔线的浅灰，1.6:1）一度被拿去写提示文字，
+    等于把话写了又没写。这条测试锁住「用来写字的灰必须够深」。
+    """
+
+    CSS = ROOT / "web" / "static" / "app.css"
+
+    @staticmethod
+    def _lum(hex_color):
+        c = hex_color.lstrip("#")
+        parts = [int(c[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        lin = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+               for x in parts]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    def _ratio(self, fg, bg):
+        a, b = self._lum(fg), self._lum(bg)
+        hi, lo = max(a, b), min(a, b)
+        return (hi + 0.05) / (lo + 0.05)
+
+    def _token(self, name):
+        css = self.CSS.read_text(encoding="utf-8")
+        m = re.search(rf"{name}:\s*(#[0-9A-Fa-f]{{6}})", css)
+        self.assertIsNotNone(m, f"{name} 不在 :root 里了")
+        return m.group(1)
+
+    def test_form_label_grey_passes_aa(self):
+        """表单标签是 11px 的正文，不是装饰。"""
+        paper_hi = self._token("--paper-hi")
+        ratio = self._ratio(self._token("--muted-strong"), paper_hi)
+        self.assertGreaterEqual(
+            round(ratio, 2), 4.5,
+            f"--muted-strong 在纸面上只有 {ratio:.2f}:1，标签看不清")
+
+    def test_rule_grey_is_never_used_as_text_color(self):
+        """--rule 是画线的，1.6:1，写字等于没写。"""
+        css = self.CSS.read_text(encoding="utf-8")
+        offenders = [ln.strip() for ln in css.splitlines()
+                     if re.search(r"(?<!-)\bcolor:\s*var\(--rule\)", ln)]
+        self.assertEqual(offenders, [],
+                         "把分隔线的灰当成了文字颜色：" + "; ".join(offenders))
+
+
 class TestSkillExport(unittest.TestCase):
     """导出的 skill 必须自包含 —— 脱离平台后没有引擎注入。"""
 

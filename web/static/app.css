@@ -8,10 +8,19 @@
   --paper:      #DDE3E4;   /* 通告单纸 · 冷灰蓝 */
   --paper-hi:   #EFF3F3;   /* 高亮纸面 */
   --ink:        #16242B;   /* 墨 */
-  --muted:      #6E7F86;   /* 次要信息 */
+  --muted:      #6E7F86;   /* 次要信息。3.7:1，只够用在大字号和纯装饰上 */
+  /* 表单标签用的深一档灰：--muted 在纸面上是 3.7:1，
+     而标签是 11px 的正文级信息，WCAG AA 要 4.5:1。这个是 5.3:1。
+     「看得清」这件事不该输给「淡一点好看」。 */
+  --muted-strong: #55676E;
   --stamp:      #A8321E;   /* 印章红 · 唯一强调色 */
   --pending:    #8A6410;   /* 待办琥珀 */
-  --rule:       #B6C1C4;   /* 分隔线 */
+  --rule:       #B6C1C4;   /* 分隔线。1.6:1 —— 只能画线，不能写字 */
+
+  /* 单行输入的舒适宽度。不设上限的话，「题材」这种填两三个词的框
+     会跟着 main 撑到 1016px，光标停在最左边、右边一千像素空着。 */
+  --w-field: 32rem;
+  --w-prose: 46rem;   /* 多行文本：一行装得下一句话，又不至于扫不回行首 */
 
   --serif: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
   --sans: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
@@ -190,6 +199,15 @@ button[disabled]:hover { background: var(--stamp); color: #fff; }
 
 details summary { cursor: pointer; }
 details[open] summary { margin-bottom: var(--sp-3); }
+/* 光秃秃一个三角形不像可以点的东西。给它一条边和 hover 反馈，
+   否则「改剧集名字」这个入口只有知道它在那儿的人找得到。 */
+.disclose > summary {
+  display: inline-block; font-family: var(--mono); font-size: var(--fs-sm);
+  letter-spacing: .06em; color: var(--muted-strong);
+  border: 1px solid var(--rule); padding: 3px 12px;
+}
+.disclose > summary:hover { border-color: var(--ink); color: var(--ink); }
+.disclose[open] > summary { border-color: var(--ink); color: var(--ink); }
 
 /* ---------- 区块 ---------- */
 .eyebrow {
@@ -301,14 +319,20 @@ textarea, input[type=text], input[type=password] {
   background: #fff; color: var(--ink);
   border: 1px solid var(--rule); border-radius: 0; padding: 12px;
 }
+/* 输入框跟着容器撑满是 width:100% 的默认结果，不是设计决定。
+   单行框收到一个手能扫过来的宽度，多行框宽一档但仍收着。 */
+input[type=text], input[type=password] { max-width: var(--w-field); }
+textarea { max-width: var(--w-prose); }
 /* select 原先没有规则，pipeline.html 只好内联样式 */
 select {
   font-family: var(--mono); font-size: var(--fs-base);
   background: var(--paper-hi); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 0; padding: var(--sp-2);
+  max-width: var(--w-field);
 }
 textarea:focus, input:focus, select:focus { border-color: var(--ink); }
-label { font-family: var(--mono); font-size: var(--fs-sm); color: var(--muted);
+label { font-family: var(--mono); font-size: var(--fs-sm);
+        color: var(--muted-strong);
         letter-spacing: .08em; text-transform: uppercase;
         display: block; margin: 16px 0 5px; }
 /* 勾选项是行内的一行字，不该套用上面那条大写等宽的块级 label */
@@ -331,6 +355,8 @@ input[type=checkbox] { accent-color: var(--stamp); margin: 0; }
 }
 .err ul { margin: 8px 0 0; padding-left: 18px; }
 .err li { font-family: var(--mono); font-size: 12px; margin-bottom: 4px; }
+/* 一行提示不该占满一整块的内边距 */
+.tight-block { padding: var(--sp-2) var(--sp-4); }
 
 .empty {
   border: 1px dashed var(--rule); padding: 32px; text-align: center;
@@ -400,14 +426,46 @@ pre {
 
 /* ---------- 厂商设置 ---------- */
 .provider-fields { display: flex; flex-direction: column; gap: var(--sp-4); }
-.field-group { display: flex; flex-direction: column; gap: var(--sp-1); }
-.field-group label { font-size: var(--fs-sm); color: var(--muted);
+/* align-items 不能留默认的 stretch —— 那会把 input 和 select
+   拉到容器满宽，把上面刚设的 max-width 变成唯一的刹车。 */
+.field-group { display: flex; flex-direction: column; gap: var(--sp-1);
+               align-items: flex-start; }
+.field-group label { font-size: var(--fs-sm); color: var(--muted-strong);
                      margin: 0; text-transform: none; letter-spacing: 0; }
-.field-hint { font-size: var(--fs-xs); color: var(--rule); }
+/* 原先是 var(--rule)，那是画线用的浅灰，当正文是 1.6:1 —— 基本看不见，
+   等于把提示写了又没写。 */
+.field-hint { font-size: var(--fs-xs); color: var(--muted); }
 .field-group input:disabled {
   background: transparent; border-color: var(--rule);
   color: var(--muted); cursor: not-allowed;
 }
+
+/* ---------- 可折叠的厂商卡 ---------- */
+.provider { padding: 0; }
+.provider > summary {
+  display: flex; align-items: baseline; gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5); cursor: pointer;
+  list-style: none;           /* 默认三角在 flex 里位置很难看，自己画 */
+}
+.provider > summary::-webkit-details-marker { display: none; }
+.provider > summary::before {
+  content: "▸"; color: var(--muted); font-size: var(--fs-sm);
+  transition: transform .12s ease;
+}
+.provider[open] > summary::before { content: "▾"; }
+.provider > summary:hover { background: rgba(22, 36, 43, .035); }
+.provider > summary .sheet-head { flex: 1; }
+.provider > .meta, .provider > form { padding: 0 var(--sp-5); }
+.provider > form { padding-bottom: var(--sp-5); }
+/* 折叠态下状态要一眼看到，所以状态做成 summary 里的胶囊而不是印章 ——
+   印章是绝对定位的，会飘到卡外面去。 */
+.pill {
+  font-family: var(--mono); font-size: var(--fs-xs);
+  border: 1px solid var(--rule); color: var(--muted-strong);
+  padding: 2px 9px; white-space: nowrap;
+}
+.pill-on  { border-color: var(--stamp); color: var(--stamp); }
+.pill-env { border-color: var(--pending); color: var(--pending); }
 
 /* ---------- 内联表单（如添加集数的 + 按钮） ---------- */
 .inline-form { display: inline; margin: 0; }
@@ -419,8 +477,10 @@ pre {
 }
 .inline-form button:hover { background: var(--ink); color: var(--paper-hi); }
 
-/* ---------- 构建信息 ---------- */
+/* ---------- 构建信息 ----------
+   页脚的 build 号是拿来报故障用的 —— 要读得出来才有意义，
+   原先用 --rule（画线的浅灰，1.6:1）等于印了个隐形水印。 */
 .build-info {
   text-align: center; padding: var(--sp-3);
-  font-family: var(--mono); font-size: var(--fs-xs); color: var(--rule);
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted);
 }

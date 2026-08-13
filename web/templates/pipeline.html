@@ -29,7 +29,7 @@
 </div>
 
 {# 剧集设置：修改名字、题材、导演 #}
-<details class="mt-1">
+<details class="mt-1 disclose">
   <summary>编辑剧集设置</summary>
   <form method="post" action="{{ url_for('series.edit_series', sid=s.id) }}" class="mt-3">
     {{ csrf_input() }}
@@ -58,11 +58,11 @@
 
 {{ st.stepper(rows, s, ep, current) }}
 
+{# 这里只做一句话的全局提示。怎么补救（换厂商 / 先试跑）写在下面的节点卡上 ——
+   那才是动手的地方，两处都写全套就是同一段话说两遍。 #}
 {% if missing_providers %}
-<div class="err"><strong>还没有配置密钥：{{ missing_providers|join('、') }}。</strong>
-对应厂商的节点暂时不能生成。去
-<a href="{{ url_for('settings.index') }}">密钥设置</a>页填一下，不用碰命令行。
-也可以在下面的「模型」下拉里换一个已配密钥的厂商。</div>
+<div class="err tight-block">缺密钥的厂商：<strong>{{ missing_providers|join('、') }}</strong>
+　·　<a href="{{ url_for('settings.index') }}">去填</a></div>
 {% endif %}
 
 {% if blocked and blocked.contract != current.contract %}

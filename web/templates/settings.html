@@ -6,21 +6,27 @@
 地址和模型留空则使用默认值，只有密钥必须填。
 配置只存在这台电脑的 <code>config/secrets.json</code> 里，不会被提交到代码仓库，也不会离开本机。</p>
 
+{# 七家厂商全部摊开是 3700px：要够到下面的口令设置，得先划过六份自己
+   根本不用的表单。绝大多数人只配一两家，所以默认只展开配过的那些
+   —— 一家都没配的时候展开第一家，免得开局是一排折叠条，无从下手。 #}
 {% for r in rows %}
-<div class="sheet {{ 'done' if r.configured else '' }}">
-  <div class="sheet-head">
-    <h2>{{ r.label }}</h2>
-    <span class="scope">{{ r.id }}</span>
-  </div>
+{% set expand = r.configured or (not rows|selectattr('configured')|list and loop.first) %}
+<details class="sheet provider {{ 'done' if r.configured else '' }}" {{ 'open' if expand }}>
+  <summary>
+    <span class="sheet-head">
+      <h2>{{ r.label }}</h2>
+      <span class="scope">{{ r.id }}</span>
+    </span>
+    {% if r.configured %}
+      <span class="pill {{ 'pill-env' if r.source == 'env' else 'pill-on' }}">
+        已配置 {{ r.masked }}</span>
+    {% else %}
+      <span class="pill">未配置</span>
+    {% endif %}
+  </summary>
   <div class="meta">
     <span>{{ r.hint }}</span>
   </div>
-
-  {% if r.configured %}
-    <div class="stamp {{ 'pending' if r.source == 'env' else '' }}">已配置<small>{{ r.masked }}</small></div>
-  {% else %}
-    <div class="stamp none">未配置</div>
-  {% endif %}
 
   <form method="post" action="{{ url_for('settings.save', provider=r.id) }}" class="mt-4">
     {{ csrf_input() }}
@@ -49,15 +55,17 @@
         {% endif %}
       </div>
     </div>
+    {# 七个红按钮同时抢眼等于一个都不显眼。primary 留给真正的主动作，
+       这里保存自己那一家是并列关系。 #}
     <div class="actions">
-      <button type="submit" class="primary">保存</button>
+      <button type="submit">保存</button>
       {% if r.configured %}
       <button type="submit" formaction="{{ url_for('settings.clear', provider=r.id) }}"
               formnovalidate onclick="return confirm('清除这把密钥？地址和模型设置会保留。')">清除密钥</button>
       {% endif %}
     </div>
   </form>
-</div>
+</details>
 {% endfor %}
 
 <div class="eyebrow">访问口令</div>
